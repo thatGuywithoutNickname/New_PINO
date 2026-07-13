@@ -1,0 +1,2912 @@
+{
+  "cases": [
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 334,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 335,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 336,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 64,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 65,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 66,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 127,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 128,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 129,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 55,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 56,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 57,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 262,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 263,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 264,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 283,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 284,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 285,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 232,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 233,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 234,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 244,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 245,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 246,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 316,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 317,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 318,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 280,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 281,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 282,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 34,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 35,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 36,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 76,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 77,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 78,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 73,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 74,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 75,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 313,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 314,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 315,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 133,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 134,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 135,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 241,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 242,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 243,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 130,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 131,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 132,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 340,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 341,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 342,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 40,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 41,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 42,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 169,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 170,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 171,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 223,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 224,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 225,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 274,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 275,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 276,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 247,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 248,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 249,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 103,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 104,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 105,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 49,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 50,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 51,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 346,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 347,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 348,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 82,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 83,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 84,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 79,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 80,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 81,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 112,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 113,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 114,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 121,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 122,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 123,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 277,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 278,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 279,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 28,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 29,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 30,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 160,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 161,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 162,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 100,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 101,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 102,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 4,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 5,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 6,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 250,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 251,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 252,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 289,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 290,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 291,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 319,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 320,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 321,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 25,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 26,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 27,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 214,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 215,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 216,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 118,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 119,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 120,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 43,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 44,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 45,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 226,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 227,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 228,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 31,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 32,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 33,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 301,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 302,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 303,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 154,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 155,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 156,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 217,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 218,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 219,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 37,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 38,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 39,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 151,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 152,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 153,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 220,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 221,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 222,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 61,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 62,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 63,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 163,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 164,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 165,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 292,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 293,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 294,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 109,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 110,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 111,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 259,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 260,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 261,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 331,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 332,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 333,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 70,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 71,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 72,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 229,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 230,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 231,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 97,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 98,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 99,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 19,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 20,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 21,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 307,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 308,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 309,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 328,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 329,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 330,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 343,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 344,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 345,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 298,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 299,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 300,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 1,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 2,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 3,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 349,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 350,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 351,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 256,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 257,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 258,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 106,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 107,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 108,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 22,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 23,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 24,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 193,
+      "stratum": "enrichment",
+      "temperature_c": 122.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 194,
+      "stratum": "enrichment",
+      "temperature_c": 122.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 195,
+      "stratum": "enrichment",
+      "temperature_c": 122.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 142,
+      "stratum": "enrichment",
+      "temperature_c": 119.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 143,
+      "stratum": "enrichment",
+      "temperature_c": 119.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 144,
+      "stratum": "enrichment",
+      "temperature_c": 119.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 211,
+      "stratum": "enrichment",
+      "temperature_c": 124.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 212,
+      "stratum": "enrichment",
+      "temperature_c": 124.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 213,
+      "stratum": "enrichment",
+      "temperature_c": 124.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 196,
+      "stratum": "enrichment",
+      "temperature_c": 123.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 197,
+      "stratum": "enrichment",
+      "temperature_c": 123.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 198,
+      "stratum": "enrichment",
+      "temperature_c": 123.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 208,
+      "stratum": "enrichment",
+      "temperature_c": 124.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 209,
+      "stratum": "enrichment",
+      "temperature_c": 124.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 210,
+      "stratum": "enrichment",
+      "temperature_c": 124.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 172,
+      "stratum": "enrichment",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 173,
+      "stratum": "enrichment",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 174,
+      "stratum": "enrichment",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 145,
+      "stratum": "enrichment",
+      "temperature_c": 119.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 146,
+      "stratum": "enrichment",
+      "temperature_c": 119.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 147,
+      "stratum": "enrichment",
+      "temperature_c": 119.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 187,
+      "stratum": "enrichment",
+      "temperature_c": 122.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 188,
+      "stratum": "enrichment",
+      "temperature_c": 122.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 189,
+      "stratum": "enrichment",
+      "temperature_c": 122.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 178,
+      "stratum": "enrichment",
+      "temperature_c": 121.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 179,
+      "stratum": "enrichment",
+      "temperature_c": 121.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 180,
+      "stratum": "enrichment",
+      "temperature_c": 121.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 136,
+      "stratum": "enrichment",
+      "temperature_c": 117.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 137,
+      "stratum": "enrichment",
+      "temperature_c": 117.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 138,
+      "stratum": "enrichment",
+      "temperature_c": 117.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 190,
+      "stratum": "enrichment",
+      "temperature_c": 122.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 191,
+      "stratum": "enrichment",
+      "temperature_c": 122.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 192,
+      "stratum": "enrichment",
+      "temperature_c": 122.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 202,
+      "stratum": "enrichment",
+      "temperature_c": 123.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 203,
+      "stratum": "enrichment",
+      "temperature_c": 123.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 204,
+      "stratum": "enrichment",
+      "temperature_c": 123.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 139,
+      "stratum": "enrichment",
+      "temperature_c": 117.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 140,
+      "stratum": "enrichment",
+      "temperature_c": 117.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "training",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 141,
+      "stratum": "enrichment",
+      "temperature_c": 117.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 295,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 296,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 297,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 148,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 149,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 150,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 94,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 95,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 96,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 265,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 266,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 267,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 253,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 254,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 255,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 337,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 338,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 339,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 115,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 116,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 117,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 166,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 167,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 168,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 235,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 236,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 237,
+      "stratum": "base_grid",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 325,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 326,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 327,
+      "stratum": "base_grid",
+      "temperature_c": 83.5,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 310,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 311,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 312,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 46,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 47,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 48,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.725
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 175,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 176,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 177,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 7,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 8,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 9,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 157,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 158,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 159,
+      "stratum": "base_grid",
+      "temperature_c": 120.0,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 238,
+      "stratum": "enrichment",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 239,
+      "stratum": "enrichment",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 240,
+      "stratum": "enrichment",
+      "temperature_c": 125.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 181,
+      "stratum": "enrichment",
+      "temperature_c": 121.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 182,
+      "stratum": "enrichment",
+      "temperature_c": 121.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "validation",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 183,
+      "stratum": "enrichment",
+      "temperature_c": 121.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 286,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 287,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 288,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 67,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 68,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 69,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 58,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 59,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 60,
+      "stratum": "base_grid",
+      "temperature_c": 1.5,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 268,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 269,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 270,
+      "stratum": "base_grid",
+      "temperature_c": 22.5,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 85,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 86,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 87,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.29
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 304,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 305,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 306,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 10,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 11,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 12,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 322,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 323,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 324,
+      "stratum": "base_grid",
+      "temperature_c": 62.75,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 16,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 17,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 18,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 13,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 14,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 15,
+      "stratum": "base_grid",
+      "temperature_c": -19.25,
+      "vibration_displacement_amplitude_mm": 0.55
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 91,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 92,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 93,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.46
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 271,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 272,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 273,
+      "stratum": "base_grid",
+      "temperature_c": 42.0,
+      "vibration_displacement_amplitude_mm": 0.2
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 88,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 89,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 90,
+      "stratum": "base_grid",
+      "temperature_c": 104.25,
+      "vibration_displacement_amplitude_mm": 0.375
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 124,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 125,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 126,
+      "stratum": "base_grid",
+      "temperature_c": 115.0,
+      "vibration_displacement_amplitude_mm": 0.64
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 52,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 53,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 54,
+      "stratum": "base_grid",
+      "temperature_c": -40.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 184,
+      "stratum": "enrichment",
+      "temperature_c": 121.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 185,
+      "stratum": "enrichment",
+      "temperature_c": 121.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 186,
+      "stratum": "enrichment",
+      "temperature_c": 121.0,
+      "vibration_displacement_amplitude_mm": 0.9
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 205,
+      "stratum": "enrichment",
+      "temperature_c": 124.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 206,
+      "stratum": "enrichment",
+      "temperature_c": 124.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 207,
+      "stratum": "enrichment",
+      "temperature_c": 124.0,
+      "vibration_displacement_amplitude_mm": 0.81
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 20.0,
+      "source_row": 199,
+      "stratum": "enrichment",
+      "temperature_c": 123.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 23.5,
+      "source_row": 200,
+      "stratum": "enrichment",
+      "temperature_c": 123.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    },
+    {
+      "partition": "test",
+      "pcb_youngs_modulus_gpa": 27.0,
+      "source_row": 201,
+      "stratum": "enrichment",
+      "temperature_c": 123.0,
+      "vibration_displacement_amplitude_mm": 0.85
+    }
+  ],
+  "generation": {
+    "allocation_slices": {
+      "base_grid": {
+        "test": [
+          84,
+          99
+        ],
+        "training": [
+          0,
+          69
+        ],
+        "validation": [
+          69,
+          84
+        ]
+      },
+      "enrichment": {
+        "test": [
+          15,
+          18
+        ],
+        "training": [
+          0,
+          13
+        ],
+        "validation": [
+          13,
+          15
+        ]
+      },
+      "slice_semantics": "zero_based_half_open"
+    },
+    "bit_generator": "PCG64",
+    "expansion": {
+      "order": "ascending",
+      "pcb_youngs_modulus_gpa": [
+        20.0,
+        23.5,
+        27.0
+      ]
+    },
+    "generator_call_order": [
+      "base_grid",
+      "enrichment"
+    ],
+    "group_sort_order": [
+      "temperature_c_ascending",
+      "vibration_displacement_amplitude_mm_ascending"
+    ],
+    "grouping_keys": [
+      "temperature_c",
+      "vibration_displacement_amplitude_mm"
+    ],
+    "partition_order": [
+      "training",
+      "validation",
+      "test"
+    ],
+    "split_seed": 42,
+    "strata": {
+      "base_grid": {
+        "definition": "cartesian_product",
+        "group_count": 99,
+        "temperature_levels_c": [
+          -40.0,
+          -19.25,
+          1.5,
+          22.5,
+          42.0,
+          62.75,
+          83.5,
+          104.25,
+          115.0,
+          120.0,
+          125.0
+        ],
+        "vibration_displacement_amplitude_levels_mm": [
+          0.2,
+          0.29,
+          0.375,
+          0.46,
+          0.55,
+          0.64,
+          0.725,
+          0.81,
+          0.9
+        ]
+      },
+      "enrichment": {
+        "definition": "all_other_temperature_amplitude_groups",
+        "group_count": 18
+      }
+    }
+  },
+  "schema_version": "baseline-grouped-split-v1",
+  "source_checksums": {
+    "element_points": "e0bc385f8078619fe1fec68d4e289da49f122ecb4497e6c232c30e304b689946",
+    "material_properties": "1bd03993bc3620ad211254fa10357242f49b1bcc5797410c28a37fe006a5a323",
+    "training_data": "d708af290ea778c44cb128d34a570b0758347323170f13587e00df9279286c6c"
+  }
+}

@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "Fixture-first lifecycle for the solder-ball AEPS baseline"
 license = "MIT"
 requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.17",
+]
 
 [project.optional-dependencies]
 test = [

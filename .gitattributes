@@ -6,5 +6,6 @@
 data/combined_training_data.csv text eol=lf
 data/co_ind.csv text eol=lf
 data/material_properties.md text eol=lf
+data/splits/baseline_split_seed42.json text eol=lf
 
 tests/fixtures/prediction_package/runtime_sources/* -text

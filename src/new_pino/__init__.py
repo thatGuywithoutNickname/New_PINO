@@ -13,6 +13,7 @@ from .preparation import (
     SourcePreflightArtifact,
     SourcePreflightError,
     SourcePreflightViolation,
+    SplitManifestError,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "SourcePreflightArtifact",
     "SourcePreflightError",
     "SourcePreflightViolation",
+    "SplitManifestError",
 ]

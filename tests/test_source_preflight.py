@@ -9,7 +9,7 @@ from typing import Callable
 
 import pytest
 
-from new_pino import BaselineLifecycle, SourcePreflightError
+from new_pino import BaselineLifecycle, SourcePreflightError, SplitManifestError
 
 
 CANONICAL_SOURCE_PATHS = {
@@ -17,22 +17,50 @@ CANONICAL_SOURCE_PATHS = {
     "element_points": "data/co_ind.csv",
     "material_properties": "data/material_properties.md",
 }
-SYNTHETIC_TEMPERATURES = (
+SYNTHETIC_BASE_TEMPERATURES = (
     -40,
-    -25,
-    -10,
-    5,
-    20,
-    35,
-    50,
-    65,
-    80,
-    95,
-    110,
+    -19.25,
+    1.5,
+    22.5,
+    42,
+    62.75,
+    83.5,
+    104.25,
+    115,
     120,
     125,
 )
-SYNTHETIC_AMPLITUDES = (0.2, 0.3, 0.4, 0.5, 0.55, 0.6, 0.7, 0.8, 0.9)
+SYNTHETIC_BASE_AMPLITUDES = (
+    0.2,
+    0.29,
+    0.375,
+    0.46,
+    0.55,
+    0.64,
+    0.725,
+    0.81,
+    0.9,
+)
+SYNTHETIC_ENRICHMENT_GROUPS = (
+    (117, 0.85),
+    (117, 0.9),
+    (119, 0.85),
+    (119, 0.9),
+    (120, 0.85),
+    (121, 0.81),
+    (121, 0.85),
+    (121, 0.9),
+    (122, 0.81),
+    (122, 0.85),
+    (122, 0.9),
+    (123, 0.81),
+    (123, 0.85),
+    (123, 0.9),
+    (124, 0.81),
+    (124, 0.85),
+    (124, 0.9),
+    (125, 0.85),
+)
 SYNTHETIC_MATERIAL_ROWS = (
     (-50, 8_000_000_000, 0.10),
     (-25, 7_000_000_000, 0.15),
@@ -62,17 +90,22 @@ def synthetic_repository(tmp_path: Path) -> Path:
             ]
         )
         case_number = 0
-        for temperature in SYNTHETIC_TEMPERATURES:
-            for amplitude in SYNTHETIC_AMPLITUDES:
-                for pcb_modulus in (20.0, 23.5, 27.0):
-                    case_number += 1
-                    aeps_field = [
-                        case_number * element_index / 1_000_000
-                        for element_index in range(1, 49)
-                    ]
-                    writer.writerow(
-                        [temperature, amplitude, pcb_modulus, *aeps_field]
-                    )
+        groups = [
+            (temperature, amplitude)
+            for temperature in SYNTHETIC_BASE_TEMPERATURES
+            for amplitude in SYNTHETIC_BASE_AMPLITUDES
+        ]
+        groups.extend(SYNTHETIC_ENRICHMENT_GROUPS)
+        for temperature, amplitude in groups:
+            for pcb_modulus in (20.0, 23.5, 27.0):
+                case_number += 1
+                aeps_field = [
+                    case_number * element_index / 1_000_000
+                    for element_index in range(1, 49)
+                ]
+                writer.writerow(
+                    [temperature, amplitude, pcb_modulus, *aeps_field]
+                )
 
     coordinate_path = repository / CANONICAL_SOURCE_PATHS["element_points"]
     with coordinate_path.open("w", encoding="utf-8", newline="") as stream:
@@ -153,6 +186,23 @@ def create_extra_temperature_amplitude_group(rows: list[list[str]]) -> None:
 
 def replace_accepted_pcb_modulus(rows: list[list[str]]) -> None:
     rows[1][2] = "21"
+
+
+def move_one_base_group_to_enrichment(rows: list[list[str]]) -> None:
+    for row in rows[1:]:
+        if row[0] == "-40" and row[1] == "0.2":
+            row[0] = "-39"
+
+
+def give_a_held_out_enrichment_group_unique_levels(rows: list[list[str]]) -> None:
+    for row in rows[1:]:
+        if row[0] == "125" and row[1] == "0.85":
+            row[0] = "126"
+            row[1] = "0.86"
+
+
+def change_one_valid_aeps_value(rows: list[list[str]]) -> None:
+    rows[1][3] = str(float(rows[1][3]) + 0.001)
 
 
 def reorder_element_point_header(rows: list[list[str]]) -> None:
@@ -259,6 +309,204 @@ def test_prepare_binds_synthetic_sources_in_a_versioned_artifact(
         name: (repository / relative_path).read_bytes()
         for name, relative_path in CANONICAL_SOURCE_PATHS.items()
     } == original_bytes
+
+
+def test_prepare_generates_the_authoritative_grouped_split_manifest(
+    tmp_path: Path,
+) -> None:
+    repository = synthetic_repository(tmp_path)
+
+    preflight = BaselineLifecycle.prepare(repository)
+
+    manifest_path = repository / "data/splits/baseline_split_seed42.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == "baseline-grouped-split-v1"
+    assert manifest["source_checksums"] == preflight.source_checksums
+    cases = manifest["cases"]
+    assert len(cases) == 351
+    assert [
+        sum(case["partition"] == partition for case in cases)
+        for partition in ("training", "validation", "test")
+    ] == [246, 51, 54]
+
+
+def test_grouped_split_records_the_complete_generation_rule(tmp_path: Path) -> None:
+    repository = synthetic_repository(tmp_path)
+
+    BaselineLifecycle.prepare(repository)
+
+    manifest = json.loads(
+        (repository / "data/splits/baseline_split_seed42.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest["generation"] == {
+        "bit_generator": "PCG64",
+        "split_seed": 42,
+        "grouping_keys": [
+            "temperature_c",
+            "vibration_displacement_amplitude_mm",
+        ],
+        "strata": {
+            "base_grid": {
+                "definition": "cartesian_product",
+                "temperature_levels_c": list(SYNTHETIC_BASE_TEMPERATURES),
+                "vibration_displacement_amplitude_levels_mm": list(
+                    SYNTHETIC_BASE_AMPLITUDES
+                ),
+                "group_count": 99,
+            },
+            "enrichment": {
+                "definition": "all_other_temperature_amplitude_groups",
+                "group_count": 18,
+            },
+        },
+        "group_sort_order": [
+            "temperature_c_ascending",
+            "vibration_displacement_amplitude_mm_ascending",
+        ],
+        "generator_call_order": ["base_grid", "enrichment"],
+        "allocation_slices": {
+            "base_grid": {
+                "training": [0, 69],
+                "validation": [69, 84],
+                "test": [84, 99],
+            },
+            "enrichment": {
+                "training": [0, 13],
+                "validation": [13, 15],
+                "test": [15, 18],
+            },
+            "slice_semantics": "zero_based_half_open",
+        },
+        "partition_order": ["training", "validation", "test"],
+        "expansion": {
+            "pcb_youngs_modulus_gpa": [20.0, 23.5, 27.0],
+            "order": "ascending",
+        },
+    }
+
+
+def test_grouped_split_rejects_an_invalid_stratum_classification(
+    tmp_path: Path,
+) -> None:
+    repository = synthetic_repository(tmp_path)
+    mutate_csv_source(
+        repository,
+        "training_data",
+        move_one_base_group_to_enrichment,
+    )
+
+    with pytest.raises(
+        SplitManifestError,
+        match=(
+            "expected 99 base-grid groups and 18 enrichment groups; "
+            "received 98 and 19"
+        ),
+    ):
+        BaselineLifecycle.prepare(repository)
+
+
+def test_grouped_split_rejects_held_out_levels_missing_from_training(
+    tmp_path: Path,
+) -> None:
+    repository = synthetic_repository(tmp_path)
+    mutate_csv_source(
+        repository,
+        "training_data",
+        give_a_held_out_enrichment_group_unique_levels,
+    )
+
+    with pytest.raises(
+        SplitManifestError,
+        match=re.escape(
+            "validation or test levels are absent from training: temperatures "
+            "[126.0]; vibration displacement amplitudes [0.86]"
+        ),
+    ):
+        BaselineLifecycle.prepare(repository)
+
+
+def test_grouped_split_rejects_source_identity_drift(tmp_path: Path) -> None:
+    repository = synthetic_repository(tmp_path)
+    BaselineLifecycle.prepare(repository)
+    mutate_csv_source(repository, "training_data", change_one_valid_aeps_value)
+
+    with pytest.raises(
+        SplitManifestError,
+        match="split manifest source identity mismatch",
+    ):
+        BaselineLifecycle.prepare(repository)
+
+
+def test_grouped_split_rejects_generation_metadata_drift(tmp_path: Path) -> None:
+    repository = synthetic_repository(tmp_path)
+    BaselineLifecycle.prepare(repository)
+    manifest_path = repository / "data/splits/baseline_split_seed42.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["generation"]["split_seed"] = 43
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        SplitManifestError,
+        match="split manifest generation metadata mismatch",
+    ):
+        BaselineLifecycle.prepare(repository)
+
+
+def test_grouped_split_rejects_case_assignment_drift(tmp_path: Path) -> None:
+    repository = synthetic_repository(tmp_path)
+    BaselineLifecycle.prepare(repository)
+    manifest_path = repository / "data/splits/baseline_split_seed42.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["cases"][0]["partition"] = "test"
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        SplitManifestError,
+        match="split manifest case assignment mismatch",
+    ):
+        BaselineLifecycle.prepare(repository)
+
+
+def test_grouped_split_rejects_finished_file_identity_drift(tmp_path: Path) -> None:
+    repository = synthetic_repository(tmp_path)
+    BaselineLifecycle.prepare(repository)
+    manifest_path = repository / "data/splits/baseline_split_seed42.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_path.write_text(
+        json.dumps(manifest, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        SplitManifestError,
+        match="split manifest identity mismatch: expected [0-9a-f]{64}, observed",
+    ):
+        BaselineLifecycle.prepare(repository)
+
+
+def test_preflight_artifact_cannot_overwrite_the_locked_split_manifest(
+    tmp_path: Path,
+) -> None:
+    repository = synthetic_repository(tmp_path)
+    BaselineLifecycle.prepare(repository)
+    manifest_path = repository / "data/splits/baseline_split_seed42.json"
+    original_manifest = manifest_path.read_bytes()
+
+    with pytest.raises(
+        ValueError,
+        match="artifact_path must not overwrite the authoritative split manifest",
+    ):
+        BaselineLifecycle.prepare(repository, artifact_path=manifest_path)
+
+    assert manifest_path.read_bytes() == original_manifest
 
 
 def test_training_schema_failure_keeps_all_checksum_first_bindings(

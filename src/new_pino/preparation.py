@@ -11,8 +11,12 @@ import math
 from pathlib import Path
 from typing import Mapping, NoReturn
 
+import numpy as np
+
 
 _SCHEMA_VERSION = "baseline-source-preflight-v1"
+_SPLIT_SCHEMA_VERSION = "baseline-grouped-split-v1"
+_SPLIT_RELATIVE_PATH = Path("data/splits/baseline_split_seed42.json")
 _CANONICAL_SOURCE_STATUS = "repository_local_canonical"
 _SOURCE_PATHS = {
     "training_data": "data/combined_training_data.csv",
@@ -27,6 +31,30 @@ _EXPECTED_TRAINING_HEADER = (
 )
 _EXPECTED_PCB_YOUNGS_MODULUS_GPA = (20.0, 23.5, 27.0)
 _EXPECTED_ELEMENT_POINT_HEADER = ("x", "z")
+_BASE_TEMPERATURES_C = (
+    -40.0,
+    -19.25,
+    1.5,
+    22.5,
+    42.0,
+    62.75,
+    83.5,
+    104.25,
+    115.0,
+    120.0,
+    125.0,
+)
+_BASE_AMPLITUDES_MM = (
+    0.2,
+    0.29,
+    0.375,
+    0.46,
+    0.55,
+    0.64,
+    0.725,
+    0.81,
+    0.9,
+)
 
 
 @dataclass(frozen=True)
@@ -63,15 +91,28 @@ class SourcePreflightError(ValueError):
         self.artifact = artifact
 
 
+class SplitManifestError(ValueError):
+    """The canonical grouped split cannot be generated or reused."""
+
+
 class _SourceViolationFound(Exception):
     def __init__(self, violation: SourcePreflightViolation) -> None:
         self.violation = violation
 
 
 @dataclass(frozen=True)
+class _SimulationCase:
+    source_row: int
+    temperature_c: float
+    vibration_displacement_amplitude_mm: float
+    pcb_youngs_modulus_gpa: float
+
+
+@dataclass(frozen=True)
 class _TrainingValidation:
     temperature_range_c: tuple[float, float]
     summary: Mapping[str, object]
+    cases: tuple[_SimulationCase, ...]
 
 
 @dataclass(frozen=True)
@@ -142,6 +183,7 @@ def prepare_sources(
         violation=None,
     )
     _write_artifact(artifact, artifact_path)
+    _prepare_split_manifest(root, training_validation.cases, source_checksums)
     return artifact
 
 
@@ -152,6 +194,16 @@ def _guard_artifact_destination(
     if artifact_path is None:
         return
     output = Path(artifact_path).resolve()
+    split_manifest = (repository_root / _SPLIT_RELATIVE_PATH).resolve()
+    aliases_split_manifest = output == split_manifest
+    if output.exists() and split_manifest.exists():
+        aliases_split_manifest = (
+            aliases_split_manifest or output.samefile(split_manifest)
+        )
+    if aliases_split_manifest:
+        raise ValueError(
+            "artifact_path must not overwrite the authoritative split manifest"
+        )
     for relative_path in _SOURCE_PATHS.values():
         canonical_source = (repository_root / relative_path).resolve()
         aliases_source = output == canonical_source
@@ -225,6 +277,7 @@ def _validate_training_source(content: bytes) -> _TrainingValidation:
         simulation_cases: set[tuple[float, float, float]] = set()
         groups: dict[tuple[float, float], list[float]] = {}
         temperatures: list[float] = []
+        cases: list[_SimulationCase] = []
         case_count = 0
         for source_row, raw_values in enumerate(reader, start=1):
             case_count += 1
@@ -289,6 +342,14 @@ def _validate_training_source(content: bytes) -> _TrainingValidation:
             simulation_cases.add(condition)
             groups.setdefault(condition[:2], []).append(condition[2])
             temperatures.append(condition[0])
+            cases.append(
+                _SimulationCase(
+                    source_row=source_row,
+                    temperature_c=condition[0],
+                    vibration_displacement_amplitude_mm=condition[1],
+                    pcb_youngs_modulus_gpa=condition[2],
+                )
+            )
 
     if case_count != 351:
         _raise_violation(
@@ -330,7 +391,179 @@ def _validate_training_source(content: bytes) -> _TrainingValidation:
             "aeps_element_count": 48,
             "simulation_temperature_range_c": list(temperature_range),
         },
+        cases=tuple(cases),
     )
+
+
+def _prepare_split_manifest(
+    repository_root: Path,
+    cases: tuple[_SimulationCase, ...],
+    source_checksums: Mapping[str, str],
+) -> None:
+    grouped_cases: dict[tuple[float, float], list[_SimulationCase]] = {}
+    for case in cases:
+        group = (
+            case.temperature_c,
+            case.vibration_displacement_amplitude_mm,
+        )
+        grouped_cases.setdefault(group, []).append(case)
+
+    base_groups = sorted(
+        group
+        for group in grouped_cases
+        if group[0] in _BASE_TEMPERATURES_C
+        and group[1] in _BASE_AMPLITUDES_MM
+    )
+    enrichment_groups = sorted(set(grouped_cases) - set(base_groups))
+    if len(base_groups) != 99 or len(enrichment_groups) != 18:
+        raise SplitManifestError(
+            "expected 99 base-grid groups and 18 enrichment groups; "
+            f"received {len(base_groups)} and {len(enrichment_groups)}"
+        )
+    generator = np.random.Generator(np.random.PCG64(42))
+    permuted_base = [base_groups[index] for index in generator.permutation(99)]
+    permuted_enrichment = [
+        enrichment_groups[index] for index in generator.permutation(18)
+    ]
+    partition_groups = {
+        "training": permuted_base[:69] + permuted_enrichment[:13],
+        "validation": permuted_base[69:84] + permuted_enrichment[13:15],
+        "test": permuted_base[84:] + permuted_enrichment[15:],
+    }
+    training_temperatures = {group[0] for group in partition_groups["training"]}
+    training_amplitudes = {group[1] for group in partition_groups["training"]}
+    held_out_groups = (
+        partition_groups["validation"] + partition_groups["test"]
+    )
+    missing_temperatures = sorted(
+        {group[0] for group in held_out_groups} - training_temperatures
+    )
+    missing_amplitudes = sorted(
+        {group[1] for group in held_out_groups} - training_amplitudes
+    )
+    if missing_temperatures or missing_amplitudes:
+        raise SplitManifestError(
+            "validation or test levels are absent from training: temperatures "
+            f"{missing_temperatures}; vibration displacement amplitudes "
+            f"{missing_amplitudes}"
+        )
+
+    serialized_cases: list[dict[str, object]] = []
+    base_group_set = set(base_groups)
+    for partition, groups in partition_groups.items():
+        for group in groups:
+            for case in sorted(
+                grouped_cases[group],
+                key=lambda item: item.pcb_youngs_modulus_gpa,
+            ):
+                serialized_cases.append(
+                    {
+                        "source_row": case.source_row,
+                        "temperature_c": case.temperature_c,
+                        "vibration_displacement_amplitude_mm": (
+                            case.vibration_displacement_amplitude_mm
+                        ),
+                        "pcb_youngs_modulus_gpa": (
+                            case.pcb_youngs_modulus_gpa
+                        ),
+                        "stratum": (
+                            "base_grid" if group in base_group_set else "enrichment"
+                        ),
+                        "partition": partition,
+                    }
+                )
+
+    manifest = {
+        "schema_version": _SPLIT_SCHEMA_VERSION,
+        "source_checksums": dict(source_checksums),
+        "generation": {
+            "bit_generator": "PCG64",
+            "split_seed": 42,
+            "grouping_keys": [
+                "temperature_c",
+                "vibration_displacement_amplitude_mm",
+            ],
+            "strata": {
+                "base_grid": {
+                    "definition": "cartesian_product",
+                    "temperature_levels_c": list(_BASE_TEMPERATURES_C),
+                    "vibration_displacement_amplitude_levels_mm": list(
+                        _BASE_AMPLITUDES_MM
+                    ),
+                    "group_count": 99,
+                },
+                "enrichment": {
+                    "definition": "all_other_temperature_amplitude_groups",
+                    "group_count": 18,
+                },
+            },
+            "group_sort_order": [
+                "temperature_c_ascending",
+                "vibration_displacement_amplitude_mm_ascending",
+            ],
+            "generator_call_order": ["base_grid", "enrichment"],
+            "allocation_slices": {
+                "base_grid": {
+                    "training": [0, 69],
+                    "validation": [69, 84],
+                    "test": [84, 99],
+                },
+                "enrichment": {
+                    "training": [0, 13],
+                    "validation": [13, 15],
+                    "test": [15, 18],
+                },
+                "slice_semantics": "zero_based_half_open",
+            },
+            "partition_order": ["training", "validation", "test"],
+            "expansion": {
+                "pcb_youngs_modulus_gpa": list(
+                    _EXPECTED_PCB_YOUNGS_MODULUS_GPA
+                ),
+                "order": "ascending",
+            },
+        },
+        "cases": serialized_cases,
+    }
+    manifest_bytes = (
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    output = repository_root / _SPLIT_RELATIVE_PATH
+    if output.exists():
+        try:
+            existing_bytes = output.read_bytes()
+            existing_manifest = json.loads(existing_bytes)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise SplitManifestError(
+                f"split manifest {output} cannot be loaded: {error}"
+            ) from error
+        if (
+            not isinstance(existing_manifest, dict)
+            or existing_manifest.get("source_checksums")
+            != manifest["source_checksums"]
+        ):
+            raise SplitManifestError("split manifest source identity mismatch")
+        if (
+            existing_manifest.get("schema_version")
+            != manifest["schema_version"]
+            or existing_manifest.get("generation") != manifest["generation"]
+        ):
+            raise SplitManifestError(
+                "split manifest generation metadata mismatch"
+            )
+        if existing_manifest.get("cases") != manifest["cases"]:
+            raise SplitManifestError(
+                "split manifest case assignment mismatch"
+            )
+        if existing_bytes != manifest_bytes:
+            raise SplitManifestError(
+                "split manifest identity mismatch: expected "
+                f"{sha256(manifest_bytes).hexdigest()}, observed "
+                f"{sha256(existing_bytes).hexdigest()}"
+            )
+        return
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(manifest_bytes)
 
 
 def _raise_violation(
