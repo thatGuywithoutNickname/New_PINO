@@ -1,0 +1,129 @@
+{
+  "schema_version": "fixture-prediction-package-v1",
+  "canonical": false,
+  "evidence_status": "noncanonical_fixture",
+  "source_checksums": {
+    "training_data": "fdc9c863cfd00b0d07f44940cb1e437301a5e422ed170dde9de3128c271f2497",
+    "element_points": "89971b5b1cdc51be2cd3f24243701e67b3fedead316108c62772e81c37678414",
+    "material_properties": "2d5b23bd715d93e3f4f9c69a2a409fc75cbf35fd81d0d2a42ed7f4663b6d1687"
+  },
+  "split_identity": "synthetic-fixture-split-v1",
+  "run_configuration_identity": "synthetic-fixture-run-v1",
+  "architecture": {
+    "kind": "dot_product_deeponet",
+    "branch_widths": [5, 32, 64, 32, 16],
+    "trunk_widths": [2, 32, 64, 32, 16],
+    "hidden_activation": "tanh",
+    "latent_activation": "linear",
+    "fusion": "dot_product_plus_scalar_bias",
+    "output_repair": "none",
+    "trainable_parameter_count": 9729
+  },
+  "preprocessing": {
+    "branch_feature_order": [
+      "temperature_c",
+      "vibration_displacement_amplitude_mm",
+      "pcb_youngs_modulus_gpa",
+      "sac305_youngs_modulus_gpa",
+      "sac305_poissons_ratio"
+    ],
+    "branch_mean": [0, 0, 0, 0, 0],
+    "branch_population_std": [1, 1, 1, 1, 1],
+    "trunk_bounds_mm": {
+      "x": [0, 7],
+      "z": [0, 5]
+    },
+    "element_points_mm": [
+      [0, 0],
+      [0, 1],
+      [0, 2],
+      [0, 3],
+      [0, 4],
+      [0, 5],
+      [1, 0],
+      [1, 1],
+      [1, 2],
+      [1, 3],
+      [1, 4],
+      [1, 5],
+      [2, 0],
+      [2, 1],
+      [2, 2],
+      [2, 3],
+      [2, 4],
+      [2, 5],
+      [3, 0],
+      [3, 1],
+      [3, 2],
+      [3, 3],
+      [3, 4],
+      [3, 5],
+      [4, 0],
+      [4, 1],
+      [4, 2],
+      [4, 3],
+      [4, 4],
+      [4, 5],
+      [5, 0],
+      [5, 1],
+      [5, 2],
+      [5, 3],
+      [5, 4],
+      [5, 5],
+      [6, 0],
+      [6, 1],
+      [6, 2],
+      [6, 3],
+      [6, 4],
+      [6, 5],
+      [7, 0],
+      [7, 1],
+      [7, 2],
+      [7, 3],
+      [7, 4],
+      [7, 5]
+    ],
+    "material": {
+      "temperature_knots_c": [-50, -25, 0, 25, 50, 75, 100, 130],
+      "youngs_modulus_pa": [
+        8000000000,
+        7000000000,
+        6000000000,
+        5000000000,
+        4000000000,
+        3000000000,
+        2000000000,
+        1000000000
+      ],
+      "poissons_ratio": [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45],
+      "interpolation": "piecewise_linear",
+      "out_of_range": "reject"
+    }
+  },
+  "predictors": [
+    {
+      "seed": 0,
+      "checkpoint_identity": "synthetic-fixture-checkpoint-0",
+      "validation_comparator_status": "passed",
+      "fixture_checkpoint": {
+        "encoding": "fixture_dense_formula_v1",
+        "phase": 0.1,
+        "weight_scale": 0.1,
+        "bias_scale": 0.001,
+        "fusion_bias": 0.0001
+      }
+    },
+    {
+      "seed": 1,
+      "checkpoint_identity": "synthetic-fixture-checkpoint-1",
+      "validation_comparator_status": "not_passed",
+      "fixture_checkpoint": {
+        "encoding": "fixture_dense_formula_v1",
+        "phase": 0.2,
+        "weight_scale": 0.08,
+        "bias_scale": 0.0005,
+        "fusion_bias": -0.0001
+      }
+    }
+  ]
+}

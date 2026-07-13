@@ -2,7 +2,7 @@
 
 ## Canonical source location
 
-The repository-local `data/` directory under `New_PINO` is the sole canonical source for baseline training, validation, test evaluation, and runtime coordinate binding. Baseline code must not read, search for, compare against, or fall back to `E:\study\DA TU Dresden\operator\data` or any other external copy.
+Authorized users provide the canonical source files in their local `data/` directory. These files are not distributed with the repository, are not licensed under the MIT License, and are ignored by Git. Baseline code must not read, search for, compare against, or fall back to any external copy.
 
 An external Ansys-generated dataset is upstream provenance only. A revision affects the baseline only after it is deliberately imported into the repository-local `data/` directory, receives a new source-checksum set, and passes the complete preflight as a new dataset version. Existing split manifests, preprocessing statistics, checkpoints, and reports remain bound to their original repository-local source checksums.
 
