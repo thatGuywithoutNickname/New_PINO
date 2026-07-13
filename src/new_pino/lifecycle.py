@@ -11,7 +11,23 @@ from pathlib import Path
 import struct
 from typing import Any, Mapping
 
-from .preparation import SourcePreflightArtifact, prepare_sources
+from .preparation import (
+    PreparedDataArtifact,
+    _AEPS_ELEMENT_ORDER,
+    _BRANCH_FEATURE_ORDER,
+    _BRANCH_FEATURE_UNITS,
+    _DTYPE_POLICY,
+    _RUNTIME_FEATURE_ORDER,
+    _TRUNK_FEATURE_ORDER,
+    _TRUNK_FEATURE_UNITS,
+    _feature_schema_content_identity,
+    _interpolate_material_properties,
+    _normalize_coordinate,
+    _preprocessing_content_identity,
+    _source_content_identity,
+    prepare_sources,
+    _unit_schema_content_identity,
+)
 
 
 _BRANCH_WIDTHS = (5, 32, 64, 32, 16)
@@ -26,15 +42,6 @@ _EXPECTED_ARCHITECTURE: Mapping[str, object] = {
     "output_repair": "none",
     "trainable_parameter_count": 9729,
 }
-_EXPECTED_BRANCH_FEATURE_ORDER = [
-    "temperature_c",
-    "vibration_displacement_amplitude_mm",
-    "pcb_youngs_modulus_gpa",
-    "sac305_youngs_modulus_gpa",
-    "sac305_poissons_ratio",
-]
-
-
 class PredictionContractError(ValueError):
     """A prediction request or bound artifact violates the public contract."""
 
@@ -65,7 +72,11 @@ class PredictionProvenance:
     checkpoint_identity: str
     validation_comparator_status: str
     source_checksums: Mapping[str, str]
+    source_identity: str
     split_identity: str
+    preprocessing_identity: str
+    feature_schema_identity: str
+    unit_schema_identity: str
     run_configuration_identity: str
 
 
@@ -105,7 +116,11 @@ class _PreprocessingState:
     x_bounds_mm: tuple[float, float]
     z_bounds_mm: tuple[float, float]
     element_points_mm: tuple[tuple[float, float], ...]
+    normalized_trunk_coordinates: tuple[tuple[float, float], ...]
     material: _MaterialMetadata
+    feature_schema_identity: str
+    unit_schema_identity: str
+    content_identity: str
 
 
 @dataclass(frozen=True)
@@ -128,6 +143,7 @@ class _FixturePredictor:
 class _FixturePackage:
     evidence_status: str
     source_checksums: _SourceChecksums
+    source_identity: str
     split_identity: str
     run_configuration_identity: str
     preprocessing: _PreprocessingState
@@ -155,7 +171,7 @@ class BaselineLifecycle:
         repository_root: str | Path,
         *,
         artifact_path: str | Path | None = None,
-    ) -> SourcePreflightArtifact:
+    ) -> PreparedDataArtifact:
         """Validate and bind the repository-local canonical baseline sources."""
 
         return prepare_sources(repository_root, artifact_path=artifact_path)
@@ -188,7 +204,7 @@ class BaselineLifecycle:
         preprocessing = self._package.preprocessing
         material = preprocessing.material
         condition = request.operating_condition
-        solder_modulus_pa, poisson_ratio = _interpolate_material(
+        solder_modulus_pa, poisson_ratio = _interpolate_material_properties(
             condition.temperature_c,
             material.temperature_knots_c,
             material.youngs_modulus_pa,
@@ -218,14 +234,10 @@ class BaselineLifecycle:
             path_offset=0,
         )
         predictions: list[float] = []
-        for point in preprocessing.element_points_mm:
+        for point in preprocessing.normalized_trunk_coordinates:
             trunk = (
-                _as_float32(
-                    _map_to_unit_interval(point[0], preprocessing.x_bounds_mm)
-                ),
-                _as_float32(
-                    _map_to_unit_interval(point[1], preprocessing.z_bounds_mm)
-                ),
+                _as_float32(point[0]),
+                _as_float32(point[1]),
             )
             trunk_latent = _mlp(
                 trunk,
@@ -247,7 +259,11 @@ class BaselineLifecycle:
             checkpoint_identity=predictor.checkpoint_identity,
             validation_comparator_status=predictor.validation_comparator_status,
             source_checksums=self._package.source_checksums.as_dict(),
+            source_identity=self._package.source_identity,
             split_identity=self._package.split_identity,
+            preprocessing_identity=preprocessing.content_identity,
+            feature_schema_identity=preprocessing.feature_schema_identity,
+            unit_schema_identity=preprocessing.unit_schema_identity,
             run_configuration_identity=self._package.run_configuration_identity,
         )
         return PredictionResult(
@@ -386,6 +402,12 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
         element_points=str(checksums["element_points"]),
         material_properties=str(checksums["material_properties"]),
     )
+    source_identity = package.get("source_identity")
+    expected_source_identity = _source_content_identity(source_checksums.as_dict())
+    if source_identity != expected_source_identity:
+        raise PredictionContractError(
+            "fixture source_identity must match the bound source checksums"
+        )
 
     split_identity = _require_nonempty_identity(package, "split_identity")
     run_configuration_identity = _require_nonempty_identity(
@@ -404,9 +426,75 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
     preprocessing = _require_mapping(
         package.get("preprocessing"), "fixture preprocessing"
     )
-    if preprocessing.get("branch_feature_order") != _EXPECTED_BRANCH_FEATURE_ORDER:
+    expected_preprocessing_keys = {
+        "schema_version",
+        "runtime_feature_order",
+        "branch_feature_order",
+        "branch_feature_units",
+        "branch_mean",
+        "branch_population_std",
+        "trunk_feature_order",
+        "trunk_feature_units",
+        "trunk_bounds_mm",
+        "element_points_mm",
+        "normalized_trunk_coordinates",
+        "aeps_element_order",
+        "aeps_unit",
+        "aeps_transform",
+        "aeps_weighting",
+        "material",
+        "dtype_policy",
+        "feature_schema_identity",
+        "unit_schema_identity",
+        "content_identity",
+    }
+    if set(preprocessing) != expected_preprocessing_keys:
         raise PredictionContractError(
-            f"fixture branch_feature_order must be {_EXPECTED_BRANCH_FEATURE_ORDER!r}"
+            "fixture preprocessing must contain the complete checkpoint-bound "
+            "schema, state, and identities"
+        )
+    if preprocessing.get("schema_version") != "baseline-preprocessing-v1":
+        raise PredictionContractError(
+            "fixture preprocessing schema_version must be 'baseline-preprocessing-v1'"
+        )
+    if preprocessing.get("runtime_feature_order") != list(_RUNTIME_FEATURE_ORDER):
+        raise PredictionContractError(
+            "fixture runtime_feature_order must contain only temperature, vibration "
+            "displacement amplitude, and PCB Young's modulus in the accepted order"
+        )
+    if preprocessing.get("branch_feature_order") != list(_BRANCH_FEATURE_ORDER):
+        raise PredictionContractError(
+            f"fixture branch_feature_order must be {list(_BRANCH_FEATURE_ORDER)!r}"
+        )
+    if preprocessing.get("branch_feature_units") != list(_BRANCH_FEATURE_UNITS):
+        raise PredictionContractError(
+            f"fixture branch_feature_units must be {list(_BRANCH_FEATURE_UNITS)!r}"
+        )
+    if preprocessing.get("trunk_feature_order") != list(_TRUNK_FEATURE_ORDER):
+        raise PredictionContractError(
+            f"fixture trunk_feature_order must be {list(_TRUNK_FEATURE_ORDER)!r}"
+        )
+    if preprocessing.get("trunk_feature_units") != list(_TRUNK_FEATURE_UNITS):
+        raise PredictionContractError(
+            f"fixture trunk_feature_units must be {list(_TRUNK_FEATURE_UNITS)!r}"
+        )
+    if preprocessing.get("aeps_element_order") != list(_AEPS_ELEMENT_ORDER):
+        raise PredictionContractError(
+            "fixture aeps_element_order must preserve AEPS_Element_1 through "
+            "AEPS_Element_48"
+        )
+    if (
+        preprocessing.get("aeps_unit") != "dimensionless"
+        or preprocessing.get("aeps_transform") != "none"
+        or preprocessing.get("aeps_weighting") != "none"
+    ):
+        raise PredictionContractError(
+            "fixture AEPS fields must remain raw, dimensionless, untransformed, and "
+            "unweighted"
+        )
+    if preprocessing.get("dtype_policy") != _DTYPE_POLICY:
+        raise PredictionContractError(
+            f"fixture dtype_policy must be {_DTYPE_POLICY!r}"
         )
     branch_mean = _require_finite_numbers(
         preprocessing.get("branch_mean"),
@@ -445,23 +533,57 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
         raise PredictionContractError(
             "fixture z trunk bounds must match the saved 48 element points"
         )
+    normalized_points = preprocessing.get("normalized_trunk_coordinates")
+    if not isinstance(normalized_points, list) or len(normalized_points) != 48:
+        raise PredictionContractError(
+            "fixture preprocessing must store exactly 48 normalized trunk coordinates"
+        )
+    parsed_normalized_points = tuple(
+        _require_element_point(point, index=index)
+        for index, point in enumerate(normalized_points, start=1)
+    )
+    expected_normalized_points = tuple(
+        (
+            _normalize_coordinate(point[0], x_bounds),
+            _normalize_coordinate(point[1], z_bounds),
+        )
+        for point in parsed_points
+    )
+    if any(
+        not math.isclose(actual, expected, rel_tol=0.0, abs_tol=1e-15)
+        for actual_point, expected_point in zip(
+            parsed_normalized_points,
+            expected_normalized_points,
+            strict=True,
+        )
+        for actual, expected in zip(actual_point, expected_point, strict=True)
+    ):
+        raise PredictionContractError(
+            "fixture normalized trunk coordinates must use the saved x/z bounds "
+            "and element-point order"
+        )
 
     material = _require_mapping(
         preprocessing.get("material"), "fixture material metadata"
     )
+    raw_knots = material.get("temperature_knots_c")
+    if not isinstance(raw_knots, list) or len(raw_knots) < 2:
+        raise PredictionContractError(
+            "fixture material temperature knots must contain at least two values"
+        )
     knots = _require_finite_numbers(
-        material.get("temperature_knots_c"),
-        count=8,
+        raw_knots,
+        count=len(raw_knots),
         label="fixture material temperature knots",
     )
     moduli = _require_finite_numbers(
         material.get("youngs_modulus_pa"),
-        count=8,
+        count=len(knots),
         label="fixture material Young's moduli",
     )
     ratios = _require_finite_numbers(
         material.get("poissons_ratio"),
-        count=8,
+        count=len(knots),
         label="fixture material Poisson's ratios",
     )
     if any(left >= right for left, right in zip(knots, knots[1:])):
@@ -484,6 +606,33 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
         raise PredictionContractError(
             "fixture material metadata must declare piecewise-linear interpolation "
             "and out-of-range rejection"
+        )
+
+    feature_schema_identity = preprocessing.get("feature_schema_identity")
+    expected_feature_schema_identity = _feature_schema_content_identity()
+    if feature_schema_identity != expected_feature_schema_identity:
+        raise PredictionContractError(
+            "fixture feature_schema_identity is incompatible with the saved "
+            "feature order"
+        )
+    unit_schema_identity = preprocessing.get("unit_schema_identity")
+    expected_unit_schema_identity = _unit_schema_content_identity()
+    if unit_schema_identity != expected_unit_schema_identity:
+        raise PredictionContractError(
+            "fixture unit_schema_identity is incompatible with the saved units"
+        )
+    preprocessing_metadata = dict(preprocessing)
+    preprocessing_identity = preprocessing_metadata.pop("content_identity")
+    expected_preprocessing_identity = _preprocessing_content_identity(
+        source_checksums=source_checksums.as_dict(),
+        source_identity=str(source_identity),
+        split_identity=split_identity,
+        preprocessing=preprocessing_metadata,
+    )
+    if preprocessing_identity != expected_preprocessing_identity:
+        raise PredictionContractError(
+            "fixture preprocessing content identity does not match its "
+            "checkpoint-bound state"
         )
 
     predictors = package.get("predictors")
@@ -522,6 +671,19 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
             raise PredictionContractError(
                 f"fixture predictor {predictor_number} validation comparator status "
                 "must be 'passed' or 'not_passed'"
+            )
+        expected_binding = {
+            "source_identity": source_identity,
+            "split_identity": split_identity,
+            "preprocessing_identity": preprocessing_identity,
+            "feature_schema_identity": feature_schema_identity,
+            "unit_schema_identity": unit_schema_identity,
+            "branch_feature_order": list(_BRANCH_FEATURE_ORDER),
+        }
+        if predictor.get("preprocessing_binding") != expected_binding:
+            raise PredictionContractError(
+                f"fixture predictor {predictor_number} preprocessing binding is "
+                "incompatible with the package identities or feature order"
             )
         checkpoint_state = _require_mapping(
             predictor.get("fixture_checkpoint"),
@@ -563,6 +725,7 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
     return _FixturePackage(
         evidence_status="noncanonical_fixture",
         source_checksums=source_checksums,
+        source_identity=str(source_identity),
         split_identity=split_identity,
         run_configuration_identity=run_configuration_identity,
         preprocessing=_PreprocessingState(
@@ -571,11 +734,15 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
             x_bounds_mm=x_bounds,
             z_bounds_mm=z_bounds,
             element_points_mm=parsed_points,
+            normalized_trunk_coordinates=parsed_normalized_points,
             material=_MaterialMetadata(
                 temperature_knots_c=knots,
                 youngs_modulus_pa=moduli,
                 poissons_ratio=ratios,
             ),
+            feature_schema_identity=str(feature_schema_identity),
+            unit_schema_identity=str(unit_schema_identity),
+            content_identity=str(preprocessing_identity),
         ),
         predictors=tuple(parsed_predictors),
     )
@@ -701,18 +868,18 @@ def _load_material_metadata(path: Path) -> _MaterialMetadata:
     rows: list[tuple[float, float, float]] = []
     for line in lines:
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) != 3:
+        if len(cells) < 3:
             continue
         try:
             row = float(cells[0]), float(cells[1]), float(cells[2])
         except ValueError:
             continue
         rows.append(row)
-    if len(rows) != 8 or any(
+    if len(rows) < 2 or any(
         not all(math.isfinite(value) for value in row) for row in rows
     ):
         raise PredictionContractError(
-            f"bound material-property source {path} must contain eight finite "
+            f"bound material-property source {path} must contain at least two finite "
             "temperature, Young's-modulus, and Poisson-ratio rows"
         )
     return _MaterialMetadata(
@@ -738,27 +905,6 @@ def _require_supported_value(
         )
 
 
-def _interpolate_material(
-    temperature_c: float,
-    knots: tuple[float, ...],
-    youngs_modulus: tuple[float, ...],
-    poissons_ratio: tuple[float, ...],
-) -> tuple[float, float]:
-    for index, knot in enumerate(knots):
-        if temperature_c == knot:
-            return youngs_modulus[index], poissons_ratio[index]
-        if temperature_c < knot:
-            lower = index - 1
-            fraction = (temperature_c - knots[lower]) / (knot - knots[lower])
-            return (
-                youngs_modulus[lower]
-                + fraction * (youngs_modulus[index] - youngs_modulus[lower]),
-                poissons_ratio[lower]
-                + fraction * (poissons_ratio[index] - poissons_ratio[lower]),
-            )
-    return youngs_modulus[-1], poissons_ratio[-1]
-
-
 def _standardize(
     values: tuple[float, ...],
     means: tuple[float, ...],
@@ -770,13 +916,6 @@ def _standardize(
             values, means, standard_deviations, strict=True
         )
     )
-
-
-def _map_to_unit_interval(
-    value: float, bounds: tuple[float, float]
-) -> float:
-    lower, upper = bounds
-    return 2.0 * (value - lower) / (upper - lower) - 1.0
 
 
 def _as_float32(value: float) -> float:

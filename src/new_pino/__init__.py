@@ -10,6 +10,10 @@ from .lifecycle import (
     PredictorSelector,
 )
 from .preparation import (
+    PreparedDataArtifact,
+    PreparedPartition,
+    PreprocessingError,
+    PreprocessingState,
     SourcePreflightArtifact,
     SourcePreflightError,
     SourcePreflightViolation,
@@ -24,6 +28,10 @@ __all__ = [
     "PredictionRequest",
     "PredictionResult",
     "PredictorSelector",
+    "PreparedDataArtifact",
+    "PreparedPartition",
+    "PreprocessingError",
+    "PreprocessingState",
     "SourcePreflightArtifact",
     "SourcePreflightError",
     "SourcePreflightViolation",

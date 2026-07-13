@@ -56,6 +56,10 @@ def test_explicit_fixture_seed_returns_one_ordered_aeps_field_with_provenance() 
         "material_properties",
     }
     assert result.provenance.split_identity == "synthetic-fixture-split-v1"
+    assert re.fullmatch(r"[0-9a-f]{64}", result.provenance.source_identity)
+    assert re.fullmatch(r"[0-9a-f]{64}", result.provenance.preprocessing_identity)
+    assert re.fullmatch(r"[0-9a-f]{64}", result.provenance.feature_schema_identity)
+    assert re.fullmatch(r"[0-9a-f]{64}", result.provenance.unit_schema_identity)
     assert result.provenance.run_configuration_identity == "synthetic-fixture-run-v1"
 
 
@@ -219,7 +223,7 @@ def test_bound_runtime_source_mismatches_identify_expected_and_actual_checksums(
         )
 
 
-def test_training_source_checksum_is_provenance_without_runtime_target_reads() -> None:
+def test_training_source_checksum_is_provenance_without_runtime_aeps_reads() -> None:
     assert not (FIXTURE_SOURCES / "combined_training_data.csv").exists()
 
     result = fixture_lifecycle().predict(
@@ -247,6 +251,45 @@ def write_package_metadata(package: Path, metadata: dict[str, object]) -> None:
         json.dumps(metadata),
         encoding="utf-8",
     )
+
+
+def canonical_identity(value: object) -> str:
+    return sha256(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def refresh_preprocessing_identity(metadata: dict[str, object]) -> None:
+    preprocessing = metadata["preprocessing"]
+    source_checksums = metadata["source_checksums"]
+    split_identity = metadata["split_identity"]
+    predictors = metadata["predictors"]
+    assert isinstance(preprocessing, dict)
+    assert isinstance(predictors, list)
+    source_identity = canonical_identity({"source_checksums": source_checksums})
+    metadata["source_identity"] = source_identity
+    identity_payload = dict(preprocessing)
+    identity_payload.pop("content_identity")
+    content_identity = canonical_identity(
+        {
+            "source_checksums": source_checksums,
+            "source_identity": source_identity,
+            "split_identity": split_identity,
+            "preprocessing": identity_payload,
+        }
+    )
+    preprocessing["content_identity"] = content_identity
+    for predictor in predictors:
+        assert isinstance(predictor, dict)
+        binding = predictor["preprocessing_binding"]
+        assert isinstance(binding, dict)
+        binding["source_identity"] = source_identity
+        binding["preprocessing_identity"] = content_identity
 
 
 def load_copied_package(package: Path) -> BaselineLifecycle:
@@ -281,6 +324,88 @@ def test_fixture_package_rejects_deeponet_architecture_drift(tmp_path: Path) -> 
         load_copied_package(package)
 
 
+def test_fixture_package_rejects_incompatible_preprocessing_units(
+    tmp_path: Path,
+) -> None:
+    package, metadata = copied_package_metadata(tmp_path)
+    preprocessing = metadata["preprocessing"]
+    assert isinstance(preprocessing, dict)
+    preprocessing["branch_feature_units"] = [
+        "kelvin",
+        "millimetres",
+        "gigapascals",
+        "gigapascals",
+        "dimensionless",
+    ]
+    write_package_metadata(package, metadata)
+
+    with pytest.raises(
+        PredictionContractError,
+        match="fixture branch_feature_units",
+    ):
+        load_copied_package(package)
+
+
+def test_fixture_package_rejects_stale_preprocessing_content_identity(
+    tmp_path: Path,
+) -> None:
+    package, metadata = copied_package_metadata(tmp_path)
+    preprocessing = metadata["preprocessing"]
+    assert isinstance(preprocessing, dict)
+    branch_mean = preprocessing["branch_mean"]
+    assert isinstance(branch_mean, list)
+    branch_mean[0] = 1
+    write_package_metadata(package, metadata)
+
+    with pytest.raises(
+        PredictionContractError,
+        match="preprocessing content identity",
+    ):
+        load_copied_package(package)
+
+
+@pytest.mark.parametrize(
+    ("binding_name", "incompatible_value"),
+    [
+        ("source_identity", "0" * 64),
+        ("split_identity", "different-split"),
+        ("preprocessing_identity", "0" * 64),
+        ("feature_schema_identity", "0" * 64),
+        ("unit_schema_identity", "0" * 64),
+        (
+            "branch_feature_order",
+            [
+                "vibration_displacement_amplitude_mm",
+                "temperature_c",
+                "pcb_youngs_modulus_gpa",
+                "sac305_youngs_modulus_gpa",
+                "sac305_poissons_ratio",
+            ],
+        ),
+    ],
+)
+def test_fixture_checkpoint_rejects_incompatible_preprocessing_binding(
+    tmp_path: Path,
+    binding_name: str,
+    incompatible_value: object,
+) -> None:
+    package, metadata = copied_package_metadata(tmp_path)
+    predictors = metadata["predictors"]
+    assert isinstance(predictors, list)
+    predictor = predictors[0]
+    assert isinstance(predictor, dict)
+    binding = predictor["preprocessing_binding"]
+    assert isinstance(binding, dict)
+    binding[binding_name] = incompatible_value
+    write_package_metadata(package, metadata)
+
+    with pytest.raises(
+        PredictionContractError,
+        match="preprocessing binding is incompatible",
+    ):
+        load_copied_package(package)
+
+
 def test_fixture_package_requires_complete_saved_prediction_state(
     tmp_path: Path,
 ) -> None:
@@ -297,6 +422,28 @@ def test_fixture_package_requires_complete_saved_prediction_state(
         load_copied_package(package)
 
 
+def test_saved_normalized_trunk_order_is_not_recomputed(
+    tmp_path: Path,
+) -> None:
+    package, metadata = copied_package_metadata(tmp_path)
+    preprocessing = metadata["preprocessing"]
+    assert isinstance(preprocessing, dict)
+    normalized_points = preprocessing["normalized_trunk_coordinates"]
+    assert isinstance(normalized_points, list)
+    normalized_points[0], normalized_points[1] = (
+        normalized_points[1],
+        normalized_points[0],
+    )
+    refresh_preprocessing_identity(metadata)
+    write_package_metadata(package, metadata)
+
+    with pytest.raises(
+        PredictionContractError,
+        match="normalized trunk coordinates must use the saved x/z bounds",
+    ):
+        load_copied_package(package)
+
+
 def test_saved_element_point_reordering_is_rejected_against_bound_source(
     tmp_path: Path,
 ) -> None:
@@ -306,6 +453,13 @@ def test_saved_element_point_reordering_is_rejected_against_bound_source(
     points = preprocessing["element_points_mm"]
     assert isinstance(points, list)
     points[0], points[1] = points[1], points[0]
+    normalized_points = preprocessing["normalized_trunk_coordinates"]
+    assert isinstance(normalized_points, list)
+    normalized_points[0], normalized_points[1] = (
+        normalized_points[1],
+        normalized_points[0],
+    )
+    refresh_preprocessing_identity(metadata)
     write_package_metadata(package, metadata)
     lifecycle = load_copied_package(package)
 
@@ -335,6 +489,7 @@ def test_saved_material_metadata_must_match_the_bound_material_table(
     moduli = material["youngs_modulus_pa"]
     assert isinstance(moduli, list)
     moduli[0] += 1
+    refresh_preprocessing_identity(metadata)
     write_package_metadata(package, metadata)
     lifecycle = load_copied_package(package)
 
@@ -353,6 +508,88 @@ def test_saved_material_metadata_must_match_the_bound_material_table(
         )
 
 
+def test_fixture_accepts_checkpoint_bound_material_table_with_added_knot(
+    tmp_path: Path,
+) -> None:
+    package, metadata = copied_package_metadata(tmp_path)
+    material_source = package / "runtime_sources" / "material_properties.md"
+    material_source.write_text(
+        material_source.read_text(encoding="utf-8").replace(
+            "| 25 | 5000000000 | 0.25 |",
+            "| 22.5 | 9000000000 | 0.33 |\n| 25 | 5000000000 | 0.25 |",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    preprocessing = metadata["preprocessing"]
+    checksums = metadata["source_checksums"]
+    assert isinstance(preprocessing, dict)
+    assert isinstance(checksums, dict)
+    material = preprocessing["material"]
+    assert isinstance(material, dict)
+    for name, value in (
+        ("temperature_knots_c", 22.5),
+        ("youngs_modulus_pa", 9_000_000_000),
+        ("poissons_ratio", 0.33),
+    ):
+        values = material[name]
+        assert isinstance(values, list)
+        values.insert(3, value)
+    checksums["material_properties"] = sha256(
+        material_source.read_bytes()
+    ).hexdigest()
+    refresh_preprocessing_identity(metadata)
+    write_package_metadata(package, metadata)
+
+    result = load_copied_package(package).predict(
+        PredictionRequest(
+            OperatingCondition(22.5, 0.55, 23.5),
+            PredictorSelector(seed=0),
+        )
+    )
+
+    assert len(result.aeps_field) == 48
+    assert all(math.isfinite(value) for value in result.aeps_field)
+
+
+def test_fixture_accepts_preflight_valid_ancillary_material_column(
+    tmp_path: Path,
+) -> None:
+    package, metadata = copied_package_metadata(tmp_path)
+    material_source = package / "runtime_sources" / "material_properties.md"
+    material_lines = material_source.read_text(encoding="utf-8").splitlines()
+    material_source.write_text(
+        "\n".join(
+            (
+                f"{line} --- |"
+                if line.startswith("| ---")
+                else f"{line} ignored |"
+                if line.startswith("|")
+                else line
+            )
+            for line in material_lines
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    checksums = metadata["source_checksums"]
+    assert isinstance(checksums, dict)
+    checksums["material_properties"] = sha256(
+        material_source.read_bytes()
+    ).hexdigest()
+    refresh_preprocessing_identity(metadata)
+    write_package_metadata(package, metadata)
+
+    result = load_copied_package(package).predict(
+        PredictionRequest(
+            OperatingCondition(22.5, 0.55, 23.5),
+            PredictorSelector(seed=0),
+        )
+    )
+
+    assert len(result.aeps_field) == 48
+
+
 def test_duplicate_bound_element_points_are_rejected(tmp_path: Path) -> None:
     package, metadata = copied_package_metadata(tmp_path)
     coordinate_source = package / "runtime_sources" / "co_ind.csv"
@@ -368,9 +605,13 @@ def test_duplicate_bound_element_points_are_rejected(tmp_path: Path) -> None:
     points = preprocessing["element_points_mm"]
     assert isinstance(points, list)
     points[1] = points[0]
+    normalized_points = preprocessing["normalized_trunk_coordinates"]
+    assert isinstance(normalized_points, list)
+    normalized_points[1] = normalized_points[0]
     checksums = metadata["source_checksums"]
     assert isinstance(checksums, dict)
     checksums["element_points"] = sha256(coordinate_source.read_bytes()).hexdigest()
+    refresh_preprocessing_identity(metadata)
     write_package_metadata(package, metadata)
     lifecycle = load_copied_package(package)
 

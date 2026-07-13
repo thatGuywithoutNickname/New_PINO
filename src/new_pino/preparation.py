@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from hashlib import sha256
 import io
 import json
 import math
 from pathlib import Path
-from typing import Mapping, NoReturn
+from types import MappingProxyType
+from typing import Any, Mapping, NoReturn, Sequence, cast
 
 import numpy as np
 
 
 _SCHEMA_VERSION = "baseline-source-preflight-v1"
 _SPLIT_SCHEMA_VERSION = "baseline-grouped-split-v1"
+_PREPROCESSING_SCHEMA_VERSION = "baseline-preprocessing-v1"
+_PARTITION_SCHEMA_VERSION = "baseline-prepared-partition-v1"
 _SPLIT_RELATIVE_PATH = Path("data/splits/baseline_split_seed42.json")
 _CANONICAL_SOURCE_STATUS = "repository_local_canonical"
 _SOURCE_PATHS = {
@@ -31,6 +34,34 @@ _EXPECTED_TRAINING_HEADER = (
 )
 _EXPECTED_PCB_YOUNGS_MODULUS_GPA = (20.0, 23.5, 27.0)
 _EXPECTED_ELEMENT_POINT_HEADER = ("x", "z")
+_RUNTIME_FEATURE_ORDER = (
+    "temperature_c",
+    "vibration_displacement_amplitude_mm",
+    "pcb_youngs_modulus_gpa",
+)
+_BRANCH_FEATURE_ORDER = (
+    *_RUNTIME_FEATURE_ORDER,
+    "sac305_youngs_modulus_gpa",
+    "sac305_poissons_ratio",
+)
+_BRANCH_FEATURE_UNITS = (
+    "degrees_celsius",
+    "millimetres",
+    "gigapascals",
+    "gigapascals",
+    "dimensionless",
+)
+_TRUNK_FEATURE_ORDER = ("x", "z")
+_TRUNK_FEATURE_UNITS = ("millimetres", "millimetres")
+_AEPS_ELEMENT_ORDER = _EXPECTED_TRAINING_HEADER[3:]
+_DTYPE_POLICY = {
+    "source_values": "float64",
+    "material_interpolation": "float64",
+    "statistics_and_bounds": "float64",
+    "stored_normalized_coordinates": "float64",
+    "model_inputs": "float32",
+    "raw_aeps_fields": "float32",
+}
 _BASE_TEMPERATURES_C = (
     -40.0,
     -19.25,
@@ -95,6 +126,10 @@ class SplitManifestError(ValueError):
     """The canonical grouped split cannot be generated or reused."""
 
 
+class PreprocessingError(ValueError):
+    """Validated sources cannot produce the accepted preprocessing state."""
+
+
 class _SourceViolationFound(Exception):
     def __init__(self, violation: SourcePreflightViolation) -> None:
         self.violation = violation
@@ -106,6 +141,7 @@ class _SimulationCase:
     temperature_c: float
     vibration_displacement_amplitude_mm: float
     pcb_youngs_modulus_gpa: float
+    raw_aeps_field: tuple[float, ...]
 
 
 @dataclass(frozen=True)
@@ -113,6 +149,26 @@ class _TrainingValidation:
     temperature_range_c: tuple[float, float]
     summary: Mapping[str, object]
     cases: tuple[_SimulationCase, ...]
+
+
+@dataclass(frozen=True)
+class _ElementPointValidation:
+    summary: Mapping[str, object]
+    points_mm: tuple[tuple[float, float], ...]
+
+
+@dataclass(frozen=True)
+class _MaterialValidation:
+    summary: Mapping[str, object]
+    temperature_knots_c: tuple[float, ...]
+    youngs_modulus_pa: tuple[float, ...]
+    poissons_ratio: tuple[float, ...]
+
+
+@dataclass(frozen=True)
+class _SplitBinding:
+    cases: tuple[Mapping[str, object], ...]
+    content_identity: str
 
 
 @dataclass(frozen=True)
@@ -143,11 +199,116 @@ class SourcePreflightArtifact:
         }
 
 
+@dataclass(frozen=True)
+class PreprocessingState:
+    """Checkpoint-bound schemas, statistics, bounds, and material metadata."""
+
+    schema_version: str
+    source_checksums: Mapping[str, str]
+    source_identity: str
+    split_identity: str
+    runtime_feature_order: tuple[str, ...]
+    branch_feature_order: tuple[str, ...]
+    branch_feature_units: tuple[str, ...]
+    trunk_feature_order: tuple[str, ...]
+    trunk_feature_units: tuple[str, ...]
+    aeps_element_order: tuple[str, ...]
+    aeps_unit: str
+    aeps_transform: str
+    aeps_weighting: str
+    branch_mean: np.ndarray
+    branch_population_std: np.ndarray
+    x_bounds_mm: np.ndarray
+    z_bounds_mm: np.ndarray
+    element_points_mm: np.ndarray
+    normalized_trunk_coordinates: np.ndarray
+    material_temperature_knots_c: np.ndarray
+    material_youngs_modulus_pa: np.ndarray
+    material_poissons_ratio: np.ndarray
+    dtype_policy: Mapping[str, str]
+    feature_schema_identity: str
+    unit_schema_identity: str
+    content_identity: str
+
+    def _checkpoint_payload(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "runtime_feature_order": list(self.runtime_feature_order),
+            "branch_feature_order": list(self.branch_feature_order),
+            "branch_feature_units": list(self.branch_feature_units),
+            "trunk_feature_order": list(self.trunk_feature_order),
+            "trunk_feature_units": list(self.trunk_feature_units),
+            "aeps_element_order": list(self.aeps_element_order),
+            "aeps_unit": self.aeps_unit,
+            "aeps_transform": self.aeps_transform,
+            "aeps_weighting": self.aeps_weighting,
+            "branch_mean": self.branch_mean.tolist(),
+            "branch_population_std": self.branch_population_std.tolist(),
+            "trunk_bounds_mm": {
+                "x": self.x_bounds_mm.tolist(),
+                "z": self.z_bounds_mm.tolist(),
+            },
+            "element_points_mm": self.element_points_mm.tolist(),
+            "normalized_trunk_coordinates": (
+                self.normalized_trunk_coordinates.tolist()
+            ),
+            "material": {
+                "temperature_knots_c": self.material_temperature_knots_c.tolist(),
+                "youngs_modulus_pa": self.material_youngs_modulus_pa.tolist(),
+                "poissons_ratio": self.material_poissons_ratio.tolist(),
+                "interpolation": "piecewise_linear",
+                "out_of_range": "reject",
+            },
+            "dtype_policy": dict(self.dtype_policy),
+            "feature_schema_identity": self.feature_schema_identity,
+            "unit_schema_identity": self.unit_schema_identity,
+        }
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "source_checksums": dict(self.source_checksums),
+            "source_identity": self.source_identity,
+            "split_identity": self.split_identity,
+            **self._checkpoint_payload(),
+            "content_identity": self.content_identity,
+        }
+
+
+@dataclass(frozen=True)
+class PreparedPartition:
+    """One canonically ordered simulation-case partition ready for consumers."""
+
+    schema_version: str
+    name: str
+    source_rows: tuple[int, ...]
+    raw_branch_features: np.ndarray
+    branch_inputs: np.ndarray
+    trunk_inputs: np.ndarray
+    raw_aeps_fields: np.ndarray
+    element_indices: tuple[int, ...]
+    branch_feature_order: tuple[str, ...]
+    source_checksums: Mapping[str, str]
+    source_identity: str
+    split_identity: str
+    preprocessing_identity: str
+    feature_schema_identity: str
+    unit_schema_identity: str
+    content_identity: str
+
+
+@dataclass(frozen=True)
+class PreparedDataArtifact(SourcePreflightArtifact):
+    """A passing source preflight enriched with checkpoint-bound tensors."""
+
+    preprocessing: PreprocessingState
+    partitions: Mapping[str, PreparedPartition]
+
+
 def prepare_sources(
     repository_root: str | Path,
     *,
     artifact_path: str | Path | None,
-) -> SourcePreflightArtifact:
+) -> PreparedDataArtifact:
     root = Path(repository_root).resolve()
     _guard_artifact_destination(root, artifact_path)
     source_checksums: dict[str, str] = {}
@@ -159,13 +320,15 @@ def prepare_sources(
             source_contents["training_data"]
         )
         validation_summary["training_data"] = training_validation.summary
-        validation_summary["element_points"] = _validate_element_point_source(
+        element_point_validation = _validate_element_point_source(
             source_contents["element_points"]
         )
-        validation_summary["material_properties"] = _validate_material_source(
+        validation_summary["element_points"] = element_point_validation.summary
+        material_validation = _validate_material_source(
             source_contents["material_properties"],
             simulation_temperature_range=training_validation.temperature_range_c,
         )
+        validation_summary["material_properties"] = material_validation.summary
     except _SourceViolationFound as error:
         artifact = _build_artifact(
             status="failed",
@@ -183,8 +346,14 @@ def prepare_sources(
         violation=None,
     )
     _write_artifact(artifact, artifact_path)
-    _prepare_split_manifest(root, training_validation.cases, source_checksums)
-    return artifact
+    split = _prepare_split_manifest(root, training_validation.cases, source_checksums)
+    return _prepare_checkpoint_bound_data(
+        artifact,
+        training_validation=training_validation,
+        element_point_validation=element_point_validation,
+        material_validation=material_validation,
+        split=split,
+    )
 
 
 def _guard_artifact_destination(
@@ -307,7 +476,7 @@ def _validate_training_source(content: bytes) -> _TrainingValidation:
                     )
                 )
 
-            aeps_field = values[3:]
+            aeps_field = tuple(values[3:])
             for column, value in zip(
                 _EXPECTED_TRAINING_HEADER[3:],
                 aeps_field,
@@ -348,6 +517,7 @@ def _validate_training_source(content: bytes) -> _TrainingValidation:
                     temperature_c=condition[0],
                     vibration_displacement_amplitude_mm=condition[1],
                     pcb_youngs_modulus_gpa=condition[2],
+                    raw_aeps_field=aeps_field,
                 )
             )
 
@@ -399,7 +569,7 @@ def _prepare_split_manifest(
     repository_root: Path,
     cases: tuple[_SimulationCase, ...],
     source_checksums: Mapping[str, str],
-) -> None:
+) -> _SplitBinding:
     grouped_cases: dict[tuple[float, float], list[_SimulationCase]] = {}
     for case in cases:
         group = (
@@ -561,9 +731,355 @@ def _prepare_split_manifest(
                 f"{sha256(manifest_bytes).hexdigest()}, observed "
                 f"{sha256(existing_bytes).hexdigest()}"
             )
-        return
+        return _SplitBinding(
+            cases=tuple(serialized_cases),
+            content_identity=sha256(existing_bytes).hexdigest(),
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(manifest_bytes)
+    return _SplitBinding(
+        cases=tuple(serialized_cases),
+        content_identity=sha256(manifest_bytes).hexdigest(),
+    )
+
+
+def _prepare_checkpoint_bound_data(
+    artifact: SourcePreflightArtifact,
+    *,
+    training_validation: _TrainingValidation,
+    element_point_validation: _ElementPointValidation,
+    material_validation: _MaterialValidation,
+    split: _SplitBinding,
+) -> PreparedDataArtifact:
+    cases_by_source_row = {
+        case.source_row: case for case in training_validation.cases
+    }
+    raw_branch_by_source_row = {
+        source_row: _raw_branch_features(case, material_validation)
+        for source_row, case in cases_by_source_row.items()
+    }
+    training_rows = tuple(
+        cast(int, entry["source_row"])
+        for entry in split.cases
+        if entry["partition"] == "training"
+    )
+    training_branch = np.asarray(
+        [raw_branch_by_source_row[source_row] for source_row in training_rows],
+        dtype=np.float64,
+    )
+    branch_mean = np.mean(training_branch, axis=0, dtype=np.float64)
+    with np.errstate(over="ignore", invalid="ignore"):
+        branch_population_std = np.std(
+            training_branch,
+            axis=0,
+            ddof=0,
+            dtype=np.float64,
+        )
+    invalid_std = (~np.isfinite(branch_population_std)) | (
+        branch_population_std == 0.0
+    )
+    if np.any(invalid_std):
+        invalid_features = [
+            _BRANCH_FEATURE_ORDER[index]
+            for index in np.flatnonzero(invalid_std).tolist()
+        ]
+        raise PreprocessingError(
+            "training-only branch population standard deviation must be finite "
+            f"and non-zero; invalid features: {invalid_features!r}"
+        )
+
+    element_points = np.asarray(
+        element_point_validation.points_mm,
+        dtype=np.float64,
+    )
+    x_bounds = np.asarray(
+        [np.min(element_points[:, 0]), np.max(element_points[:, 0])],
+        dtype=np.float64,
+    )
+    z_bounds = np.asarray(
+        [np.min(element_points[:, 1]), np.max(element_points[:, 1])],
+        dtype=np.float64,
+    )
+    x_normalization_bounds = (float(x_bounds[0]), float(x_bounds[1]))
+    z_normalization_bounds = (float(z_bounds[0]), float(z_bounds[1]))
+    normalized_trunk_coordinates = np.asarray(
+        [
+            (
+                _normalize_coordinate(float(point[0]), x_normalization_bounds),
+                _normalize_coordinate(float(point[1]), z_normalization_bounds),
+            )
+            for point in element_points
+        ],
+        dtype=np.float64,
+    )
+
+    feature_schema_identity = _feature_schema_content_identity()
+    unit_schema_identity = _unit_schema_content_identity()
+    source_checksums = MappingProxyType(dict(artifact.source_checksums))
+    source_identity = _source_content_identity(source_checksums)
+    preprocessing = PreprocessingState(
+        schema_version=_PREPROCESSING_SCHEMA_VERSION,
+        source_checksums=source_checksums,
+        source_identity=source_identity,
+        split_identity=split.content_identity,
+        runtime_feature_order=_RUNTIME_FEATURE_ORDER,
+        branch_feature_order=_BRANCH_FEATURE_ORDER,
+        branch_feature_units=_BRANCH_FEATURE_UNITS,
+        trunk_feature_order=_TRUNK_FEATURE_ORDER,
+        trunk_feature_units=_TRUNK_FEATURE_UNITS,
+        aeps_element_order=_AEPS_ELEMENT_ORDER,
+        aeps_unit="dimensionless",
+        aeps_transform="none",
+        aeps_weighting="none",
+        branch_mean=_readonly_array(branch_mean, dtype=np.float64),
+        branch_population_std=_readonly_array(
+            branch_population_std,
+            dtype=np.float64,
+        ),
+        x_bounds_mm=_readonly_array(x_bounds, dtype=np.float64),
+        z_bounds_mm=_readonly_array(z_bounds, dtype=np.float64),
+        element_points_mm=_readonly_array(element_points, dtype=np.float64),
+        normalized_trunk_coordinates=_readonly_array(
+            normalized_trunk_coordinates,
+            dtype=np.float64,
+        ),
+        material_temperature_knots_c=_readonly_array(
+            material_validation.temperature_knots_c,
+            dtype=np.float64,
+        ),
+        material_youngs_modulus_pa=_readonly_array(
+            material_validation.youngs_modulus_pa,
+            dtype=np.float64,
+        ),
+        material_poissons_ratio=_readonly_array(
+            material_validation.poissons_ratio,
+            dtype=np.float64,
+        ),
+        dtype_policy=MappingProxyType(dict(_DTYPE_POLICY)),
+        feature_schema_identity=feature_schema_identity,
+        unit_schema_identity=unit_schema_identity,
+        content_identity="",
+    )
+    preprocessing = replace(
+        preprocessing,
+        content_identity=_preprocessing_content_identity(
+            source_checksums=preprocessing.source_checksums,
+            source_identity=preprocessing.source_identity,
+            split_identity=preprocessing.split_identity,
+            preprocessing=preprocessing._checkpoint_payload(),
+        ),
+    )
+
+    trunk_inputs = _readonly_array(
+        preprocessing.normalized_trunk_coordinates,
+        dtype=np.float32,
+    )
+    partitions: dict[str, PreparedPartition] = {}
+    for partition_name in ("training", "validation", "test"):
+        source_rows = tuple(
+            cast(int, entry["source_row"])
+            for entry in split.cases
+            if entry["partition"] == partition_name
+        )
+        raw_branch_features = _readonly_array(
+            [raw_branch_by_source_row[source_row] for source_row in source_rows],
+            dtype=np.float64,
+        )
+        branch_inputs = _readonly_array(
+            (
+                raw_branch_features - preprocessing.branch_mean
+            )
+            / preprocessing.branch_population_std,
+            dtype=np.float32,
+        )
+        raw_aeps_fields = _readonly_array(
+            [
+                cases_by_source_row[source_row].raw_aeps_field
+                for source_row in source_rows
+            ],
+            dtype=np.float32,
+        )
+        partition = PreparedPartition(
+            schema_version=_PARTITION_SCHEMA_VERSION,
+            name=partition_name,
+            source_rows=source_rows,
+            raw_branch_features=raw_branch_features,
+            branch_inputs=branch_inputs,
+            trunk_inputs=trunk_inputs,
+            raw_aeps_fields=raw_aeps_fields,
+            element_indices=tuple(range(1, 49)),
+            branch_feature_order=_BRANCH_FEATURE_ORDER,
+            source_checksums=source_checksums,
+            source_identity=source_identity,
+            split_identity=split.content_identity,
+            preprocessing_identity=preprocessing.content_identity,
+            feature_schema_identity=feature_schema_identity,
+            unit_schema_identity=unit_schema_identity,
+            content_identity="",
+        )
+        partitions[partition_name] = replace(
+            partition,
+            content_identity=_partition_content_identity(partition),
+        )
+
+    return PreparedDataArtifact(
+        schema_version=artifact.schema_version,
+        status=artifact.status,
+        canonical_source_status=artifact.canonical_source_status,
+        source_paths=artifact.source_paths,
+        source_checksums=artifact.source_checksums,
+        validation_summary=artifact.validation_summary,
+        violation=artifact.violation,
+        content_identity=artifact.content_identity,
+        preprocessing=preprocessing,
+        partitions=MappingProxyType(partitions),
+    )
+
+
+def _raw_branch_features(
+    case: _SimulationCase,
+    material: _MaterialValidation,
+) -> tuple[float, ...]:
+    solder_modulus_pa, poissons_ratio = _interpolate_material_properties(
+        case.temperature_c,
+        material.temperature_knots_c,
+        material.youngs_modulus_pa,
+        material.poissons_ratio,
+    )
+    return (
+        case.temperature_c,
+        case.vibration_displacement_amplitude_mm,
+        case.pcb_youngs_modulus_gpa,
+        solder_modulus_pa / 1_000_000_000.0,
+        poissons_ratio,
+    )
+
+
+def _interpolate_material_properties(
+    temperature_c: float,
+    temperature_knots_c: Sequence[float],
+    youngs_modulus_pa: Sequence[float],
+    poissons_ratio: Sequence[float],
+) -> tuple[float, float]:
+    for index, knot in enumerate(temperature_knots_c):
+        if temperature_c == knot:
+            return youngs_modulus_pa[index], poissons_ratio[index]
+        if temperature_c < knot:
+            lower_index = index - 1
+            fraction = (temperature_c - temperature_knots_c[lower_index]) / (
+                knot - temperature_knots_c[lower_index]
+            )
+            return (
+                youngs_modulus_pa[lower_index]
+                + fraction
+                * (youngs_modulus_pa[index] - youngs_modulus_pa[lower_index]),
+                poissons_ratio[lower_index]
+                + fraction * (poissons_ratio[index] - poissons_ratio[lower_index]),
+            )
+    return youngs_modulus_pa[-1], poissons_ratio[-1]
+
+
+def _normalize_coordinate(value: float, bounds: Sequence[float]) -> float:
+    scale = max(abs(bounds[0]), abs(bounds[1]))
+    scaled_lower = bounds[0] / scale
+    scaled_upper = bounds[1] / scale
+    return (
+        2.0
+        * (value / scale - scaled_lower)
+        / (scaled_upper - scaled_lower)
+        - 1.0
+    )
+
+
+def _readonly_array(values: Any, *, dtype: Any) -> np.ndarray:
+    array = np.array(values, dtype=dtype, order="C", copy=True)
+    array.setflags(write=False)
+    return array
+
+
+def _canonical_json_identity(payload: object) -> str:
+    return sha256(_canonical_json_bytes(payload)).hexdigest()
+
+
+def _source_content_identity(source_checksums: Mapping[str, str]) -> str:
+    return _canonical_json_identity({"source_checksums": dict(source_checksums)})
+
+
+def _preprocessing_content_identity(
+    *,
+    source_checksums: Mapping[str, str],
+    source_identity: str,
+    split_identity: str,
+    preprocessing: Mapping[str, object],
+) -> str:
+    return _canonical_json_identity(
+        {
+            "source_checksums": dict(source_checksums),
+            "source_identity": source_identity,
+            "split_identity": split_identity,
+            "preprocessing": dict(preprocessing),
+        }
+    )
+
+
+def _feature_schema_content_identity() -> str:
+    return _canonical_json_identity(
+        {
+            "runtime_feature_order": list(_RUNTIME_FEATURE_ORDER),
+            "branch_feature_order": list(_BRANCH_FEATURE_ORDER),
+            "trunk_feature_order": list(_TRUNK_FEATURE_ORDER),
+            "aeps_element_order": list(_AEPS_ELEMENT_ORDER),
+            "element_index_model_input": False,
+            "aeps_transform": "none",
+            "aeps_weighting": "none",
+        }
+    )
+
+
+def _unit_schema_content_identity() -> str:
+    return _canonical_json_identity(
+        {
+            "branch_feature_units": list(_BRANCH_FEATURE_UNITS),
+            "trunk_feature_units": list(_TRUNK_FEATURE_UNITS),
+            "aeps_unit": "dimensionless",
+        }
+    )
+
+
+def _partition_content_identity(partition: PreparedPartition) -> str:
+    arrays = {
+        "raw_branch_features": partition.raw_branch_features,
+        "branch_inputs": partition.branch_inputs,
+        "trunk_inputs": partition.trunk_inputs,
+        "raw_aeps_fields": partition.raw_aeps_fields,
+    }
+    metadata: dict[str, object] = {
+        "schema_version": partition.schema_version,
+        "name": partition.name,
+        "source_rows": list(partition.source_rows),
+        "element_indices": list(partition.element_indices),
+        "branch_feature_order": list(partition.branch_feature_order),
+        "source_checksums": dict(partition.source_checksums),
+        "source_identity": partition.source_identity,
+        "split_identity": partition.split_identity,
+        "preprocessing_identity": partition.preprocessing_identity,
+        "feature_schema_identity": partition.feature_schema_identity,
+        "unit_schema_identity": partition.unit_schema_identity,
+        "arrays": {
+            name: {"shape": list(array.shape), "dtype": str(array.dtype)}
+            for name, array in arrays.items()
+        },
+    }
+    digest = sha256(_canonical_json_bytes(metadata))
+    for name, array in arrays.items():
+        digest.update(name.encode("ascii"))
+        digest.update(b"\0")
+        little_endian = np.ascontiguousarray(
+            array,
+            dtype=array.dtype.newbyteorder("<"),
+        )
+        digest.update(little_endian.tobytes(order="C"))
+    return digest.hexdigest()
 
 
 def _raise_violation(
@@ -612,7 +1128,7 @@ def _parse_finite_source_value(
     return value
 
 
-def _validate_element_point_source(content: bytes) -> dict[str, object]:
+def _validate_element_point_source(content: bytes) -> _ElementPointValidation:
     with io.StringIO(_decode_source(content, source="element_points")) as stream:
         reader = csv.reader(stream)
         header = next(reader, [])
@@ -685,23 +1201,26 @@ def _validate_element_point_source(content: bytes) -> dict[str, object]:
             )
     x_range = min(point[0] for point in points), max(point[0] for point in points)
     z_range = min(point[1] for point in points), max(point[1] for point in points)
-    return {
-        "element_point_count": len(points),
-        "element_index_basis": "one_based_source_order",
-        "x_range_mm": list(x_range),
-        "z_range_mm": list(z_range),
-        "element_index_binding": [
-            {"element_index": index, "x_mm": point[0], "z_mm": point[1]}
-            for index, point in enumerate(points, start=1)
-        ],
-    }
+    return _ElementPointValidation(
+        summary={
+            "element_point_count": len(points),
+            "element_index_basis": "one_based_source_order",
+            "x_range_mm": list(x_range),
+            "z_range_mm": list(z_range),
+            "element_index_binding": [
+                {"element_index": index, "x_mm": point[0], "z_mm": point[1]}
+                for index, point in enumerate(points, start=1)
+            ],
+        },
+        points_mm=tuple(points),
+    )
 
 
 def _validate_material_source(
     content: bytes,
     *,
     simulation_temperature_range: tuple[float, float],
-) -> dict[str, object]:
+) -> _MaterialValidation:
     lines = _decode_source(content, source="material_properties").splitlines()
     header_index = next(
         (
@@ -837,13 +1356,18 @@ def _validate_material_source(
                 f"simulation temperature in {simulation_temperature_range!r}"
             ),
         )
-    return {
-        "temperature_knot_count": len(material_rows),
-        "temperature_range_c": list(material_temperature_range),
-        "youngs_modulus_unit": "Pa",
-        "interpolation": "piecewise_linear",
-        "out_of_range": "reject",
-    }
+    return _MaterialValidation(
+        summary={
+            "temperature_knot_count": len(material_rows),
+            "temperature_range_c": list(material_temperature_range),
+            "youngs_modulus_unit": "Pa",
+            "interpolation": "piecewise_linear",
+            "out_of_range": "reject",
+        },
+        temperature_knots_c=tuple(row[1] for row in material_rows),
+        youngs_modulus_pa=tuple(row[2] for row in material_rows),
+        poissons_ratio=tuple(row[3] for row in material_rows),
+    )
 
 
 def _markdown_cells(line: str) -> list[str] | None:
@@ -921,7 +1445,7 @@ def _decode_source(content: bytes, *, source: str) -> str:
         )
 
 
-def _canonical_json_bytes(payload: Mapping[str, object]) -> bytes:
+def _canonical_json_bytes(payload: object) -> bytes:
     return json.dumps(
         payload,
         ensure_ascii=False,

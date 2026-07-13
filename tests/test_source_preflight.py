@@ -7,9 +7,15 @@ from pathlib import Path
 import re
 from typing import Callable
 
+import numpy as np
 import pytest
 
-from new_pino import BaselineLifecycle, SourcePreflightError, SplitManifestError
+from new_pino import (
+    BaselineLifecycle,
+    PreprocessingError,
+    SourcePreflightError,
+    SplitManifestError,
+)
 
 
 CANONICAL_SOURCE_PATHS = {
@@ -143,6 +149,17 @@ def checksums_for_repository_sources(repository: Path) -> dict[str, str]:
     }
 
 
+def canonical_identity(value: object) -> str:
+    return sha256(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def mutate_csv_source(
     repository: Path,
     source_name: str,
@@ -231,6 +248,12 @@ def collapse_z_coordinate_range(rows: list[list[str]]) -> None:
         row[:] = [str(index), "1"]
 
 
+def use_extreme_finite_coordinate_bounds(rows: list[list[str]]) -> None:
+    for index, row in enumerate(rows[1:]):
+        x_coordinate = "-1e308" if index < 24 else "1e308"
+        row[:] = [x_coordinate, str(index)]
+
+
 def mutate_material_source(
     repository: Path,
     mutation: Callable[[str], str],
@@ -271,6 +294,39 @@ def stop_material_coverage_below_simulation_maximum(text: str) -> str:
     return text.replace("| 130 | 1000000000", "| 124 | 1000000000", 1)
 
 
+def insert_noncollinear_material_knot(text: str) -> str:
+    return text.replace(
+        "| 25 | 5000000000 | 0.25 |",
+        "| 22.5 | 9000000000 | 0.33 |\n| 25 | 5000000000 | 0.25 |",
+        1,
+    )
+
+
+def make_poissons_ratio_constant(text: str) -> str:
+    for value in ("0.10", "0.15", "0.20", "0.30", "0.35", "0.40", "0.45"):
+        text = text.replace(f"| {value} |", "| 0.25 |")
+    return text
+
+
+def make_solder_modulus_variation_overflow_float64(text: str) -> str:
+    for old, new in zip(
+        (
+            "8000000000",
+            "7000000000",
+            "6000000000",
+            "5000000000",
+            "4000000000",
+            "3000000000",
+            "2000000000",
+            "1000000000",
+        ),
+        ("8e307", "7e307", "6e307", "5e307", "4e307", "3e307", "2e307", "1e307"),
+        strict=True,
+    ):
+        text = text.replace(old, new, 1)
+    return text
+
+
 def test_prepare_binds_synthetic_sources_in_a_versioned_artifact(
     tmp_path: Path,
 ) -> None:
@@ -295,20 +351,259 @@ def test_prepare_binds_synthetic_sources_in_a_versioned_artifact(
     serialized_artifact = artifact.to_dict()
     identity_payload = dict(serialized_artifact)
     identity_payload.pop("content_identity")
-    expected_identity = sha256(
-        json.dumps(
-            identity_payload,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-    ).hexdigest()
+    expected_identity = canonical_identity(identity_payload)
     assert artifact.content_identity == expected_identity
     assert json.loads(artifact_path.read_text(encoding="utf-8")) == serialized_artifact
     assert {
         name: (repository / relative_path).read_bytes()
         for name, relative_path in CANONICAL_SOURCE_PATHS.items()
     } == original_bytes
+
+
+def test_prepare_fits_checkpoint_bound_manifest_ordered_tensors(
+    tmp_path: Path,
+) -> None:
+    repository = synthetic_repository(tmp_path)
+
+    prepared = BaselineLifecycle.prepare(repository)
+
+    preprocessing = prepared.preprocessing
+    assert preprocessing.runtime_feature_order == (
+        "temperature_c",
+        "vibration_displacement_amplitude_mm",
+        "pcb_youngs_modulus_gpa",
+    )
+    assert preprocessing.branch_feature_order == (
+        "temperature_c",
+        "vibration_displacement_amplitude_mm",
+        "pcb_youngs_modulus_gpa",
+        "sac305_youngs_modulus_gpa",
+        "sac305_poissons_ratio",
+    )
+    assert preprocessing.branch_feature_units == (
+        "degrees_celsius",
+        "millimetres",
+        "gigapascals",
+        "gigapascals",
+        "dimensionless",
+    )
+    assert preprocessing.trunk_feature_order == ("x", "z")
+    assert preprocessing.trunk_feature_units == ("millimetres", "millimetres")
+    assert preprocessing.aeps_element_order == tuple(
+        f"AEPS_Element_{index}" for index in range(1, 49)
+    )
+    assert preprocessing.aeps_unit == "dimensionless"
+    assert preprocessing.aeps_transform == "none"
+    assert preprocessing.aeps_weighting == "none"
+    assert preprocessing.source_identity == canonical_identity(
+        {"source_checksums": dict(prepared.source_checksums)}
+    )
+    checkpoint_state = preprocessing.to_dict()
+    for provenance_name in (
+        "source_checksums",
+        "source_identity",
+        "split_identity",
+        "content_identity",
+    ):
+        checkpoint_state.pop(provenance_name)
+    assert preprocessing.content_identity == canonical_identity(
+        {
+            "source_checksums": dict(prepared.source_checksums),
+            "source_identity": preprocessing.source_identity,
+            "split_identity": preprocessing.split_identity,
+            "preprocessing": checkpoint_state,
+        }
+    )
+
+    assert preprocessing.branch_mean.dtype == np.float64
+    assert preprocessing.branch_population_std.dtype == np.float64
+    np.testing.assert_allclose(
+        preprocessing.branch_mean,
+        [
+            66.84756097560975,
+            0.5959756097560981,
+            23.5,
+            3.3829471544715473,
+            0.3308526422764223,
+        ],
+        rtol=1e-15,
+    )
+    np.testing.assert_allclose(
+        preprocessing.branch_population_std,
+        [
+            57.063784862482166,
+            0.23775556086491248,
+            2.857738033247041,
+            2.229298507593977,
+            0.11146492537969904,
+        ],
+        rtol=1e-15,
+    )
+    assert preprocessing.x_bounds_mm.dtype == np.float64
+    assert preprocessing.z_bounds_mm.dtype == np.float64
+    assert preprocessing.element_points_mm.dtype == np.float64
+    assert preprocessing.normalized_trunk_coordinates.dtype == np.float64
+    np.testing.assert_array_equal(preprocessing.x_bounds_mm, [0.0, 7.0])
+    np.testing.assert_array_equal(preprocessing.z_bounds_mm, [0.0, 5.0])
+    np.testing.assert_allclose(
+        preprocessing.normalized_trunk_coordinates[[0, 1, 20, 47]],
+        [[-1.0, -1.0], [-1.0, -0.6], [-1.0 / 7.0, -0.2], [1.0, 1.0]],
+    )
+
+    manifest = json.loads(
+        (repository / "data/splits/baseline_split_seed42.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    expected_sizes = {"training": 246, "validation": 51, "test": 54}
+    expected_first_inputs = {
+        "training": [
+            0.29182151,
+            -0.57191348,
+            -1.22474492,
+            -0.32429355,
+            0.32429355,
+        ],
+        "validation": [
+            -0.43543485,
+            1.27872670,
+            -1.22474492,
+            0.42033529,
+            -0.42033529,
+        ],
+        "test": [
+            -0.43543485,
+            0.18516661,
+            -1.22474492,
+            0.42033529,
+            -0.42033529,
+        ],
+    }
+    for name, size in expected_sizes.items():
+        partition = prepared.partitions[name]
+        assert partition.source_rows == tuple(
+            case["source_row"]
+            for case in manifest["cases"]
+            if case["partition"] == name
+        )
+        assert partition.raw_branch_features.shape == (size, 5)
+        assert partition.raw_branch_features.dtype == np.float64
+        assert partition.branch_inputs.shape == (size, 5)
+        assert partition.branch_inputs.dtype == np.float32
+        assert partition.trunk_inputs.shape == (48, 2)
+        assert partition.trunk_inputs.dtype == np.float32
+        assert partition.raw_aeps_fields.shape == (size, 48)
+        assert partition.raw_aeps_fields.dtype == np.float32
+        assert partition.element_indices == tuple(range(1, 49))
+        np.testing.assert_allclose(
+            partition.branch_inputs[0],
+            expected_first_inputs[name],
+            rtol=1e-6,
+        )
+        np.testing.assert_array_equal(
+            partition.trunk_inputs,
+            preprocessing.normalized_trunk_coordinates.astype(np.float32),
+        )
+        assert partition.source_checksums == prepared.source_checksums
+        assert partition.source_identity == preprocessing.source_identity
+        assert partition.split_identity == preprocessing.split_identity
+        assert partition.preprocessing_identity == preprocessing.content_identity
+        assert (
+            partition.feature_schema_identity
+            == preprocessing.feature_schema_identity
+        )
+        assert partition.unit_schema_identity == preprocessing.unit_schema_identity
+        assert re.fullmatch(r"[0-9a-f]{64}", partition.content_identity)
+        assert not partition.raw_branch_features.flags.writeable
+        assert not partition.branch_inputs.flags.writeable
+        assert not partition.trunk_inputs.flags.writeable
+        assert not partition.raw_aeps_fields.flags.writeable
+
+    training = prepared.partitions["training"]
+    assert training.source_rows[0] == 172
+    np.testing.assert_allclose(
+        training.raw_branch_features[0],
+        [83.5, 0.46, 20.0, 2.66, 0.367],
+        rtol=1e-15,
+    )
+    np.testing.assert_array_equal(
+        training.raw_aeps_fields[0],
+        np.asarray(
+            [172 * element_index / 1_000_000 for element_index in range(1, 49)],
+            dtype=np.float32,
+        ),
+    )
+
+    repeated = BaselineLifecycle.prepare(repository)
+    assert repeated.preprocessing.content_identity == preprocessing.content_identity
+    assert {
+        name: partition.content_identity
+        for name, partition in repeated.partitions.items()
+    } == {
+        name: partition.content_identity
+        for name, partition in prepared.partitions.items()
+    }
+
+
+def test_prepare_preserves_exact_material_knots_in_branch_features(
+    tmp_path: Path,
+) -> None:
+    repository = synthetic_repository(tmp_path)
+    mutate_material_source(repository, insert_noncollinear_material_knot)
+
+    prepared = BaselineLifecycle.prepare(repository)
+
+    rows_at_knot = np.concatenate(
+        [
+            partition.raw_branch_features[
+                partition.raw_branch_features[:, 0] == 22.5
+            ]
+            for partition in prepared.partitions.values()
+        ]
+    )
+    assert rows_at_knot.shape == (27, 5)
+    np.testing.assert_array_equal(rows_at_knot[:, 3], np.full(27, 9.0))
+    np.testing.assert_array_equal(rows_at_knot[:, 4], np.full(27, 0.33))
+
+
+def test_prepare_normalizes_extreme_finite_coordinates_without_overflow(
+    tmp_path: Path,
+) -> None:
+    repository = synthetic_repository(tmp_path)
+    mutate_csv_source(
+        repository,
+        "element_points",
+        use_extreme_finite_coordinate_bounds,
+    )
+
+    prepared = BaselineLifecycle.prepare(repository)
+
+    normalized = prepared.preprocessing.normalized_trunk_coordinates
+    assert np.all(np.isfinite(normalized))
+    np.testing.assert_array_equal(normalized[:24, 0], -1.0)
+    np.testing.assert_array_equal(normalized[24:, 0], 1.0)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "invalid_feature"),
+    [
+        (make_poissons_ratio_constant, "sac305_poissons_ratio"),
+        (
+            make_solder_modulus_variation_overflow_float64,
+            "sac305_youngs_modulus_gpa",
+        ),
+    ],
+)
+def test_prepare_rejects_invalid_training_population_standard_deviation(
+    tmp_path: Path,
+    mutation: Callable[[str], str],
+    invalid_feature: str,
+) -> None:
+    repository = synthetic_repository(tmp_path)
+    mutate_material_source(repository, mutation)
+
+    with pytest.raises(PreprocessingError, match=invalid_feature):
+        BaselineLifecycle.prepare(repository)
 
 
 def test_prepare_generates_the_authoritative_grouped_split_manifest(
