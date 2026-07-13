@@ -1,2 +1,3 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+tests/fixtures/prediction_package/runtime_sources/* -text

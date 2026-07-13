@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "new-pino"
+version = "0.1.0"
+description = "Fixture-first lifecycle for the solder-ball AEPS baseline"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+test = [
+  "mypy>=1.17",
+  "pytest>=8.4",
+  "ruff>=0.12",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra -p no:cacheprovider"
+pythonpath = ["src"]
+testpaths = ["tests"]
