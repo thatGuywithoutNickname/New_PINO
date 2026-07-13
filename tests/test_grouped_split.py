@@ -124,9 +124,6 @@ def test_real_sources_regenerate_and_reuse_the_locked_manifest(
 
     assert preflight.source_checksums == EXPECTED_SOURCE_CHECKSUMS
     assert generated_bytes == MANIFEST_PATH.read_bytes()
-    assert sha256(generated_bytes).hexdigest() == sha256(
-        MANIFEST_PATH.read_bytes()
-    ).hexdigest()
 
     BaselineLifecycle.prepare(repository)
     assert generated_path.read_bytes() == generated_bytes
