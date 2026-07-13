@@ -11,6 +11,8 @@ from pathlib import Path
 import struct
 from typing import Any, Mapping
 
+from .preparation import SourcePreflightArtifact, prepare_sources
+
 
 _BRANCH_WIDTHS = (5, 32, 64, 32, 16)
 _TRUNK_WIDTHS = (2, 32, 64, 32, 16)
@@ -146,6 +148,17 @@ class BaselineLifecycle:
         self._material_source = (
             package_path / "runtime_sources" / "material_properties.md"
         )
+
+    @classmethod
+    def prepare(
+        cls,
+        repository_root: str | Path,
+        *,
+        artifact_path: str | Path | None = None,
+    ) -> SourcePreflightArtifact:
+        """Validate and bind the repository-local canonical baseline sources."""
+
+        return prepare_sources(repository_root, artifact_path=artifact_path)
 
     @classmethod
     def from_package(

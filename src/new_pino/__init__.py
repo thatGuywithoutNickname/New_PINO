@@ -9,6 +9,11 @@ from .lifecycle import (
     PredictionResult,
     PredictorSelector,
 )
+from .preparation import (
+    SourcePreflightArtifact,
+    SourcePreflightError,
+    SourcePreflightViolation,
+)
 
 __all__ = [
     "BaselineLifecycle",
@@ -18,4 +23,7 @@ __all__ = [
     "PredictionRequest",
     "PredictionResult",
     "PredictorSelector",
+    "SourcePreflightArtifact",
+    "SourcePreflightError",
+    "SourcePreflightViolation",
 ]

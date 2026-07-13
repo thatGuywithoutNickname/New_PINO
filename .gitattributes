@@ -1,3 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Source identities are raw-byte SHA-256 values, so their line endings must be
+# stable across checkout configurations.
+data/combined_training_data.csv text eol=lf
+data/co_ind.csv text eol=lf
+data/material_properties.md text eol=lf
+
 tests/fixtures/prediction_package/runtime_sources/* -text
