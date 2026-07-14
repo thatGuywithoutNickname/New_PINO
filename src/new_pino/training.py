@@ -462,8 +462,9 @@ def train_seed(
             branch_batch = branch_batch.to(device)
             target_batch = target_batch.to(device)
             optimizer.zero_grad(set_to_none=True)
-            predictions = model(branch_batch, trunk_inputs)
-            loss = torch.nn.functional.mse_loss(predictions, target_batch)
+            with torch.autocast(device_type=device.type, enabled=False):
+                predictions = model(branch_batch, trunk_inputs)
+                loss = torch.nn.functional.mse_loss(predictions, target_batch)
             if controlled_fault_stage == "training_loss":
                 loss = loss * torch.tensor(float("nan"), device=device)
             if not bool(torch.isfinite(loss)):
@@ -752,17 +753,20 @@ def _validation_mse(
     controlled_fault_stage: str | None = None,
 ) -> tuple[float, np.ndarray]:
     model.eval()
-    with torch.no_grad():
+    with torch.no_grad(), torch.autocast(
+        device_type=branch_inputs.device.type,
+        enabled=False,
+    ):
         predictions = model(branch_inputs, trunk_inputs).to(dtype=torch.float64)
         targets_float64 = targets.to(dtype=torch.float64)
-    if controlled_fault_stage == "validation_prediction":
-        predictions.view(-1)[0] = float("nan")
-    if not bool(torch.all(torch.isfinite(predictions))):
-        raise _NonFiniteTrainingState(
-            "validation_prediction",
-            "at least one validation prediction is non-finite",
-        )
-    mse = float(torch.mean((predictions - targets_float64) ** 2))
+        if controlled_fault_stage == "validation_prediction":
+            predictions.view(-1)[0] = float("nan")
+        if not bool(torch.all(torch.isfinite(predictions))):
+            raise _NonFiniteTrainingState(
+                "validation_prediction",
+                "at least one validation prediction is non-finite",
+            )
+        mse = float(torch.mean((predictions - targets_float64) ** 2))
     if controlled_fault_stage == "validation_mse":
         mse = math.inf
     if not math.isfinite(mse):

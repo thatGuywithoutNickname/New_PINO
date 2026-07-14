@@ -299,6 +299,43 @@ def test_cpu_smoke_shuffle_and_training_are_repeatable_for_one_seed(
     )
 
 
+def test_seed_execution_disables_an_ambient_autocast_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
+    original_forward = training_module._DeepONet.forward
+    observed_autocast_states: list[bool] = []
+
+    def record_autocast_state(
+        model: training_module._DeepONet,
+        branch_inputs: torch.Tensor,
+        trunk_inputs: torch.Tensor,
+    ) -> torch.Tensor:
+        observed_autocast_states.append(
+            torch.is_autocast_enabled(branch_inputs.device.type)
+        )
+        return original_forward(model, branch_inputs, trunk_inputs)
+
+    monkeypatch.setattr(
+        training_module._DeepONet,
+        "forward",
+        record_autocast_state,
+    )
+
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+        result = BaselineLifecycle.train(
+            prepared,
+            seed=0,
+            artifact_directory=tmp_path / "ambient-autocast",
+            smoke_max_epochs=1,
+        )
+
+    assert result.completed_epochs == 1
+    assert observed_autocast_states
+    assert not any(observed_autocast_states)
+
+
 def test_canonical_seed_execution_rejects_an_undeclared_seed_before_cuda_access(
     tmp_path: Path,
 ) -> None:

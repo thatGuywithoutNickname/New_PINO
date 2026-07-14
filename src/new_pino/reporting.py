@@ -28,6 +28,10 @@ class CaseMetricReport:
 class SeedMetricReport:
     seed: int
     checkpoint_identity: str
+    precision_identity: str
+    backend_identity: str
+    content_identity: str
+    compatibility_identity: str
     global_mse: float
     global_rmse: float
     hotspot_relative_l2_median: float
@@ -91,7 +95,7 @@ def _evaluate_fixture(
     split_identity: str,
     preprocessing_identity: str,
     run_configuration_identity: str,
-    predictor_identities: tuple[tuple[int, str], ...],
+    predictor_identities: tuple[tuple[int, str, str, str, str, str], ...],
     element_points_mm: tuple[tuple[float, float], ...],
     artifact_path: str | Path | None,
 ) -> EvaluationReport:
@@ -187,6 +191,22 @@ def _evaluate_fixture(
     seed_reports: list[SeedMetricReport] = []
     seen_seeds: set[int] = set()
     seen_checkpoints: set[str] = set()
+    predictor_bindings = {
+        (seed, checkpoint): (
+            precision_identity,
+            backend_identity,
+            content_identity,
+            compatibility_identity,
+        )
+        for (
+            seed,
+            checkpoint,
+            precision_identity,
+            backend_identity,
+            content_identity,
+            compatibility_identity,
+        ) in predictor_identities
+    }
     for prediction_number, raw_prediction in enumerate(predictions, start=1):
         prediction = _require_mapping(
             raw_prediction, f"evaluation predictor {prediction_number}"
@@ -206,11 +226,36 @@ def _evaluate_fixture(
             )
         seen_seeds.add(seed)
         seen_checkpoints.add(checkpoint_identity)
-        if (seed, checkpoint_identity) not in predictor_identities:
+        expected_binding = predictor_bindings.get((seed, checkpoint_identity))
+        if expected_binding is None:
             raise EvaluationContractError(
                 f"seed {seed} and checkpoint identity {checkpoint_identity!r} do not "
                 "identify one predictor in the loaded package"
             )
+        binding_names = (
+            "precision_identity",
+            "backend_identity",
+            "content_identity",
+            "compatibility_identity",
+        )
+        actual_binding = tuple(
+            _require_identity(
+                prediction.get(name),
+                f"evaluation predictor {prediction_number} {name.replace('_', ' ')}",
+            )
+            for name in binding_names
+        )
+        for name, actual, expected in zip(
+            binding_names,
+            actual_binding,
+            expected_binding,
+            strict=True,
+        ):
+            if actual != expected:
+                raise EvaluationContractError(
+                    f"evaluation predictor {prediction_number} "
+                    f"{name.replace('_', ' ')} does not match the loaded package"
+                )
 
         raw_fields = prediction.get("aeps_fields")
         if not isinstance(raw_fields, list) or len(raw_fields) != len(truths):
@@ -256,6 +301,10 @@ def _evaluate_fixture(
             SeedMetricReport(
                 seed=seed,
                 checkpoint_identity=checkpoint_identity,
+                precision_identity=actual_binding[0],
+                backend_identity=actual_binding[1],
+                content_identity=actual_binding[2],
+                compatibility_identity=actual_binding[3],
                 global_mse=global_mse,
                 global_rmse=math.sqrt(global_mse),
                 hotspot_relative_l2_median=_median(
@@ -425,6 +474,19 @@ def _nearest_rank_p90(values: list[float]) -> float:
 def _cross_seed_summary(
     seed_reports: list[SeedMetricReport],
 ) -> dict[str, MeanAndSampleStandardDeviation]:
+    pooling_identities = {
+        (
+            report.precision_identity,
+            report.backend_identity,
+            report.content_identity,
+        )
+        for report in seed_reports
+    }
+    if len(pooling_identities) != 1:
+        raise EvaluationContractError(
+            "cross-seed results with different precision, backend, or content "
+            "identities cannot be pooled"
+        )
     return {
         metric: _mean_and_sample_standard_deviation(
             [getattr(report, metric) for report in seed_reports]

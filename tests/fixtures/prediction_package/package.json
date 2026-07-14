@@ -234,6 +234,19 @@
     {
       "seed": 0,
       "checkpoint_identity": "synthetic-fixture-checkpoint-0",
+      "compatibility": {
+        "source_identity": "c2ec12703f9236eacd827b046af43f4bda1bb5dca5bf60f6b5e683768934cd74",
+        "split_identity": "synthetic-fixture-split-v1",
+        "preprocessing_identity": "df1d4363ad2237ef198a3dca3e425844754a2ed7a84a98d0cbb1eb678b9d3469",
+        "configuration_identity": "synthetic-fixture-run-v1",
+        "precision_identity": "synthetic-fixture-float32-v1",
+        "backend_identity": "synthetic-fixture-cpu-v1",
+        "content_identities": {
+          "training_partition": "synthetic-fixture-training-content-v1",
+          "validation_partition": "synthetic-fixture-validation-content-v1"
+        }
+      },
+      "compatibility_identity": "dd8db92fe8e94553fe22a3851d9e909aa87afeeba8d6513fe157a0b5b81e5c66",
       "validation_comparator_status": "passed",
       "preprocessing_binding": {
         "source_identity": "c2ec12703f9236eacd827b046af43f4bda1bb5dca5bf60f6b5e683768934cd74",
@@ -260,6 +273,19 @@
     {
       "seed": 1,
       "checkpoint_identity": "synthetic-fixture-checkpoint-1",
+      "compatibility": {
+        "source_identity": "c2ec12703f9236eacd827b046af43f4bda1bb5dca5bf60f6b5e683768934cd74",
+        "split_identity": "synthetic-fixture-split-v1",
+        "preprocessing_identity": "df1d4363ad2237ef198a3dca3e425844754a2ed7a84a98d0cbb1eb678b9d3469",
+        "configuration_identity": "synthetic-fixture-run-v1",
+        "precision_identity": "synthetic-fixture-float32-v1",
+        "backend_identity": "synthetic-fixture-cpu-v1",
+        "content_identities": {
+          "training_partition": "synthetic-fixture-training-content-v1",
+          "validation_partition": "synthetic-fixture-validation-content-v1"
+        }
+      },
+      "compatibility_identity": "dd8db92fe8e94553fe22a3851d9e909aa87afeeba8d6513fe157a0b5b81e5c66",
       "validation_comparator_status": "not_passed",
       "preprocessing_binding": {
         "source_identity": "c2ec12703f9236eacd827b046af43f4bda1bb5dca5bf60f6b5e683768934cd74",

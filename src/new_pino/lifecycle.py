@@ -30,6 +30,7 @@ from .preparation import (
 )
 from .reporting import (
     EvaluationReport,
+    _content_identity,
     _evaluate_fixture,
 )
 from .training import (
@@ -134,6 +135,10 @@ class _FixtureCheckpoint:
 class _FixturePredictor:
     seed: int
     checkpoint_identity: str
+    precision_identity: str
+    backend_identity: str
+    content_identity: str
+    compatibility_identity: str
     validation_comparator_status: str
     checkpoint: _FixtureCheckpoint
 
@@ -308,7 +313,14 @@ class BaselineLifecycle:
             preprocessing_identity=package.preprocessing.content_identity,
             run_configuration_identity=package.run_configuration_identity,
             predictor_identities=tuple(
-                (predictor.seed, predictor.checkpoint_identity)
+                (
+                    predictor.seed,
+                    predictor.checkpoint_identity,
+                    predictor.precision_identity,
+                    predictor.backend_identity,
+                    predictor.content_identity,
+                    predictor.compatibility_identity,
+                )
                 for predictor in package.predictors
             ),
             element_points_mm=package.preprocessing.element_points_mm,
@@ -705,6 +717,55 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
             )
         seeds.add(seed)
         checkpoints.add(checkpoint)
+        compatibility = _require_mapping(
+            predictor.get("compatibility"),
+            f"fixture predictor {predictor_number} compatibility",
+        )
+        expected_compatibility_bindings = {
+            "source_identity": source_identity,
+            "split_identity": split_identity,
+            "preprocessing_identity": preprocessing_identity,
+            "configuration_identity": run_configuration_identity,
+        }
+        for name, expected in expected_compatibility_bindings.items():
+            if compatibility.get(name) != expected:
+                raise PredictionContractError(
+                    f"fixture predictor {predictor_number} compatibility {name} "
+                    "does not match the package"
+                )
+        precision_identity = _require_nonempty_identity(
+            compatibility,
+            "precision_identity",
+        )
+        backend_identity = _require_nonempty_identity(
+            compatibility,
+            "backend_identity",
+        )
+        content_identities = _require_mapping(
+            compatibility.get("content_identities"),
+            f"fixture predictor {predictor_number} content identities",
+        )
+        if set(content_identities) != {
+            "training_partition",
+            "validation_partition",
+        } or any(
+            not isinstance(identity, str) or not identity
+            for identity in content_identities.values()
+        ):
+            raise PredictionContractError(
+                f"fixture predictor {predictor_number} content identities must "
+                "bind the training and validation partitions"
+            )
+        content_identity = _content_identity(content_identities)
+        compatibility_identity = _require_nonempty_identity(
+            predictor,
+            "compatibility_identity",
+        )
+        if compatibility_identity != _content_identity(compatibility):
+            raise PredictionContractError(
+                f"fixture predictor {predictor_number} compatibility identity is "
+                "stale"
+            )
         comparator_status = predictor.get("validation_comparator_status")
         if comparator_status not in {
             "passed",
@@ -754,6 +815,10 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
             _FixturePredictor(
                 seed=seed,
                 checkpoint_identity=checkpoint,
+                precision_identity=precision_identity,
+                backend_identity=backend_identity,
+                content_identity=content_identity,
+                compatibility_identity=compatibility_identity,
                 validation_comparator_status=str(comparator_status),
                 checkpoint=_FixtureCheckpoint(
                     phase=recipe_values[0],

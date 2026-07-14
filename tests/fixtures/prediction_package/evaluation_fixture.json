@@ -48,6 +48,10 @@
     {
       "seed": 0,
       "checkpoint_identity": "synthetic-fixture-checkpoint-0",
+      "precision_identity": "synthetic-fixture-float32-v1",
+      "backend_identity": "synthetic-fixture-cpu-v1",
+      "content_identity": "04caf587f13d9ef43a19aa48302d19bcb71798b008dd0920c9dfe891d8485571",
+      "compatibility_identity": "dd8db92fe8e94553fe22a3851d9e909aa87afeeba8d6513fe157a0b5b81e5c66",
       "aeps_fields": [
         [
           3, 1, 0, 3, 0, 0,
@@ -74,6 +78,10 @@
     {
       "seed": 1,
       "checkpoint_identity": "synthetic-fixture-checkpoint-1",
+      "precision_identity": "synthetic-fixture-float32-v1",
+      "backend_identity": "synthetic-fixture-cpu-v1",
+      "content_identity": "04caf587f13d9ef43a19aa48302d19bcb71798b008dd0920c9dfe891d8485571",
+      "compatibility_identity": "dd8db92fe8e94553fe22a3851d9e909aa87afeeba8d6513fe157a0b5b81e5c66",
       "aeps_fields": [
         [
           3, 3, 2, 0, 0, 0,

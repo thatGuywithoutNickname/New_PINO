@@ -5,6 +5,7 @@ import json
 import math
 from pathlib import Path
 import re
+import shutil
 
 import pytest
 
@@ -13,6 +14,18 @@ from new_pino import BaselineLifecycle, EvaluationContractError
 
 FIXTURE_PACKAGE = Path(__file__).parent / "fixtures" / "prediction_package"
 EVALUATION_FIXTURE = FIXTURE_PACKAGE / "evaluation_fixture.json"
+
+
+def _content_identity(payload: object) -> str:
+    return sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def test_authorized_fixture_reports_exact_global_metrics_in_manifest_order(
@@ -57,15 +70,7 @@ def test_authorized_fixture_reports_exact_global_metrics_in_manifest_order(
 
     payload = json.loads(artifact_path.read_text(encoding="utf-8"))
     report_content_identity = payload.pop("report_content_identity")
-    expected_identity = sha256(
-        json.dumps(
-            payload,
-            ensure_ascii=False,
-            allow_nan=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-    ).hexdigest()
+    expected_identity = _content_identity(payload)
     assert report.report_content_identity == report_content_identity
     assert report_content_identity == expected_identity
     assert re.fullmatch(r"[0-9a-f]{64}", report_content_identity)
@@ -224,3 +229,48 @@ def test_fixture_and_ad_hoc_reports_cannot_claim_official_evidence(
         match="must be machine-visibly noncanonical",
     ):
         BaselineLifecycle.from_package(FIXTURE_PACKAGE).evaluate(official_path)
+
+
+def test_cross_seed_summary_rejects_predictors_from_different_backends(
+    tmp_path: Path,
+) -> None:
+    package_path = tmp_path / "mixed-backend-package"
+    shutil.copytree(FIXTURE_PACKAGE, package_path)
+    metadata_path = package_path / "package.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    second_compatibility = metadata["predictors"][1]["compatibility"]
+    second_compatibility["backend_identity"] = "different-backend"
+    second_compatibility_identity = _content_identity(second_compatibility)
+    metadata["predictors"][1][
+        "compatibility_identity"
+    ] = second_compatibility_identity
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    fixture_path = package_path / "evaluation_fixture.json"
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    fixture["predictions"][1]["backend_identity"] = "different-backend"
+    fixture["predictions"][1][
+        "compatibility_identity"
+    ] = second_compatibility_identity
+    fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+
+    with pytest.raises(
+        EvaluationContractError,
+        match="different precision, backend, or content identities cannot be pooled",
+    ):
+        BaselineLifecycle.from_package(package_path).evaluate(fixture_path)
+
+
+def test_evaluation_rejects_a_stale_predictor_compatibility_identity(
+    tmp_path: Path,
+) -> None:
+    fixture = json.loads(EVALUATION_FIXTURE.read_text(encoding="utf-8"))
+    fixture["predictions"][0]["compatibility_identity"] = "stale-identity"
+    fixture_path = tmp_path / "stale-compatibility.json"
+    fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+
+    with pytest.raises(
+        EvaluationContractError,
+        match="compatibility identity does not match the loaded package",
+    ):
+        BaselineLifecycle.from_package(FIXTURE_PACKAGE).evaluate(fixture_path)

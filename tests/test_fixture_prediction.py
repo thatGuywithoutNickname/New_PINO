@@ -290,6 +290,11 @@ def refresh_preprocessing_identity(metadata: dict[str, object]) -> None:
         assert isinstance(binding, dict)
         binding["source_identity"] = source_identity
         binding["preprocessing_identity"] = content_identity
+        compatibility = predictor["compatibility"]
+        assert isinstance(compatibility, dict)
+        compatibility["source_identity"] = source_identity
+        compatibility["preprocessing_identity"] = content_identity
+        predictor["compatibility_identity"] = canonical_identity(compatibility)
 
 
 def load_copied_package(package: Path) -> BaselineLifecycle:
@@ -320,6 +325,26 @@ def test_fixture_package_rejects_deeponet_architecture_drift(tmp_path: Path) -> 
         match=re.escape(
             "fixture architecture branch_widths must be [5, 32, 64, 32, 16]"
         ),
+    ):
+        load_copied_package(package)
+
+
+def test_fixture_package_rejects_a_stale_predictor_compatibility_identity(
+    tmp_path: Path,
+) -> None:
+    package, metadata = copied_package_metadata(tmp_path)
+    predictors = metadata["predictors"]
+    assert isinstance(predictors, list)
+    predictor = predictors[0]
+    assert isinstance(predictor, dict)
+    compatibility = predictor["compatibility"]
+    assert isinstance(compatibility, dict)
+    compatibility["backend_identity"] = "different-backend"
+    write_package_metadata(package, metadata)
+
+    with pytest.raises(
+        PredictionContractError,
+        match="compatibility identity is stale",
     ):
         load_copied_package(package)
 
