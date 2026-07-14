@@ -15,6 +15,7 @@ from .freezing import (
     SeedComparatorEvidence,
 )
 from .preparation import (
+    LockedTestPartitionBinding,
     PreparedDataArtifact,
     PreparedPartition,
     PreprocessingError,
@@ -46,6 +47,7 @@ __all__ = [
     "FreezeContractError",
     "FreezeResult",
     "MeanAndSampleStandardDeviation",
+    "LockedTestPartitionBinding",
     "OperatingCondition",
     "PredictionContractError",
     "PredictionProvenance",

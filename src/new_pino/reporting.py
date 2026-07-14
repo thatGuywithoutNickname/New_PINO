@@ -7,7 +7,7 @@ from hashlib import sha256
 import json
 import math
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 
 class EvaluationContractError(ValueError):
@@ -263,75 +263,25 @@ def _evaluate_fixture(
                 f"evaluation predictor {prediction_number} must contain one AEPS "
                 "field per simulation case"
             )
-        squared_error_sum = 0.0
-        prediction_values: list[float] = []
-        case_metrics: list[CaseMetricReport] = []
-        for case_number, (truth, raw_field) in enumerate(
-            zip(truths, raw_fields), start=1
-        ):
-            field = _require_aeps_field(
+        fields = tuple(
+            _require_aeps_field(
                 raw_field,
                 f"evaluation predictor {prediction_number} case {case_number}",
             )
-            squared_error_sum += sum(
-                (predicted - expected) ** 2
-                for predicted, expected in zip(field, truth)
-            )
-            prediction_values.extend(field)
-            case_metrics.append(
-                _case_metrics(
-                    case_order[case_number - 1],
-                    truth,
-                    field,
-                    element_points_mm,
-                )
-            )
-        global_mse = squared_error_sum / (len(truths) * 48)
-        hotspot_relative_l2_values = [
-            metric.hotspot_relative_l2 for metric in case_metrics
-        ]
-        peak_error_values = [
-            metric.peak_magnitude_relative_error for metric in case_metrics
-        ]
-        location_error_values = [
-            metric.hotspot_location_error_mm for metric in case_metrics
-        ]
-        overlap_values = [metric.hotspot_overlap for metric in case_metrics]
+            for case_number, raw_field in enumerate(raw_fields, start=1)
+        )
         seed_reports.append(
-            SeedMetricReport(
+            _seed_metric_report(
                 seed=seed,
                 checkpoint_identity=checkpoint_identity,
                 precision_identity=actual_binding[0],
                 backend_identity=actual_binding[1],
                 content_identity=actual_binding[2],
                 compatibility_identity=actual_binding[3],
-                global_mse=global_mse,
-                global_rmse=math.sqrt(global_mse),
-                hotspot_relative_l2_median=_median(
-                    hotspot_relative_l2_values
-                ),
-                hotspot_relative_l2_p90=_nearest_rank_p90(
-                    hotspot_relative_l2_values
-                ),
-                peak_magnitude_relative_error_median=_median(peak_error_values),
-                peak_magnitude_relative_error_p90=_nearest_rank_p90(
-                    peak_error_values
-                ),
-                hotspot_location_error_mm_median=_median(location_error_values),
-                hotspot_location_error_mm_p90=_nearest_rank_p90(
-                    location_error_values
-                ),
-                hotspot_overlap_mean=sum(overlap_values) / len(overlap_values),
-                perfect_hotspot_overlap_fraction=(
-                    sum(value == 1.0 for value in overlap_values)
-                    / len(overlap_values)
-                ),
-                negative_prediction_fraction=(
-                    sum(value < 0.0 for value in prediction_values)
-                    / len(prediction_values)
-                ),
-                most_negative_prediction=min(prediction_values),
-                case_metrics=tuple(case_metrics),
+                case_order=case_order,
+                truths=truths,
+                predictions=fields,
+                element_points_mm=element_points_mm,
             )
         )
 
@@ -402,6 +352,72 @@ def _require_aeps_field(value: object, label: str) -> tuple[float, ...]:
     ):
         raise EvaluationContractError(f"{label} values must be finite numbers")
     return tuple(float(item) for item in value)
+
+
+def _seed_metric_report(
+    *,
+    seed: int,
+    checkpoint_identity: str,
+    precision_identity: str,
+    backend_identity: str,
+    content_identity: str,
+    compatibility_identity: str,
+    case_order: Sequence[str],
+    truths: Sequence[tuple[float, ...]],
+    predictions: Sequence[tuple[float, ...]],
+    element_points_mm: tuple[tuple[float, float], ...],
+) -> SeedMetricReport:
+    case_metrics = tuple(
+        _case_metrics(case_identity, truth, prediction, element_points_mm)
+        for case_identity, truth, prediction in zip(
+            case_order, truths, predictions, strict=True
+        )
+    )
+    squared_error_sum = sum(
+        (predicted - expected) ** 2
+        for truth, prediction in zip(truths, predictions, strict=True)
+        for predicted, expected in zip(prediction, truth, strict=True)
+    )
+    prediction_values = [
+        value for prediction in predictions for value in prediction
+    ]
+    hotspot_relative_l2 = [
+        metric.hotspot_relative_l2 for metric in case_metrics
+    ]
+    peak_error = [
+        metric.peak_magnitude_relative_error for metric in case_metrics
+    ]
+    location_error = [
+        metric.hotspot_location_error_mm for metric in case_metrics
+    ]
+    overlap = [metric.hotspot_overlap for metric in case_metrics]
+    global_mse = squared_error_sum / (len(truths) * 48)
+    return SeedMetricReport(
+        seed=seed,
+        checkpoint_identity=checkpoint_identity,
+        precision_identity=precision_identity,
+        backend_identity=backend_identity,
+        content_identity=content_identity,
+        compatibility_identity=compatibility_identity,
+        global_mse=global_mse,
+        global_rmse=math.sqrt(global_mse),
+        hotspot_relative_l2_median=_median(hotspot_relative_l2),
+        hotspot_relative_l2_p90=_nearest_rank_p90(hotspot_relative_l2),
+        peak_magnitude_relative_error_median=_median(peak_error),
+        peak_magnitude_relative_error_p90=_nearest_rank_p90(peak_error),
+        hotspot_location_error_mm_median=_median(location_error),
+        hotspot_location_error_mm_p90=_nearest_rank_p90(location_error),
+        hotspot_overlap_mean=sum(overlap) / len(overlap),
+        perfect_hotspot_overlap_fraction=(
+            sum(value == 1.0 for value in overlap) / len(overlap)
+        ),
+        negative_prediction_fraction=(
+            sum(value < 0.0 for value in prediction_values)
+            / len(prediction_values)
+        ),
+        most_negative_prediction=min(prediction_values),
+        case_metrics=case_metrics,
+    )
 
 
 def _case_metrics(

@@ -7,23 +7,28 @@ from hashlib import sha256
 import json
 import math
 from pathlib import Path
+import pickle
 import shutil
 from typing import Any, Mapping, Sequence
 
 import numpy as np
+import torch
 
 from .preparation import (
     PreparedDataArtifact,
     _partition_content_identity,
 )
 from .reporting import (
-    SeedMetricReport,
-    _case_metrics,
+    _content_identity,
     _cross_seed_summary,
-    _median,
-    _nearest_rank_p90,
+    _seed_metric_report,
 )
-from .training import SeedTrainingResult, _CANONICAL_SEEDS, _EXPECTED_ARCHITECTURE
+from .training import (
+    SeedTrainingResult,
+    _CANONICAL_SEEDS,
+    _EXPECTED_ARCHITECTURE,
+    _torch_state_identity,
+)
 
 
 _RERUN_REQUIREMENT = (
@@ -115,7 +120,7 @@ def freeze_seed_runs(
             "test_partition_status": "locked_invalid_evidence",
             "revision_requirement": _RERUN_REQUIREMENT,
         }
-        payload["content_identity"] = _identity(payload)
+        payload["content_identity"] = _content_identity(payload)
         _write_json(gate_path, payload)
         raise FreezeContractError(message, gate_artifact_path=gate_path)
 
@@ -164,6 +169,23 @@ def freeze_seed_runs(
             "all five seeds must share one common training protocol and environment",
         )
     protocol_identity = next(iter(protocol_identities))
+    pooling_identities = {
+        (
+            run.compatibility["precision_identity"],
+            run.compatibility["backend_identity"],
+            run.compatibility["software_identity"],
+            tuple(
+                sorted(run.compatibility["content_identities"].items())
+            ),
+        )
+        for run in validated_runs
+    }
+    if len(pooling_identities) != 1:
+        reject(
+            "incompatible_seed_identities",
+            "all five seeds require compatible precision, backend, software, "
+            "and partition identities",
+        )
     root = Path(repository_root).resolve()
     try:
         _verify_repository_sources(root, prepared)
@@ -238,7 +260,7 @@ def freeze_seed_runs(
         "protocol_identity": protocol_identity,
         "revision_requirement": None if gate_passed else _RERUN_REQUIREMENT,
     }
-    gate_payload["content_identity"] = _identity(gate_payload)
+    gate_payload["content_identity"] = _content_identity(gate_payload)
     _write_json(gate_path, gate_payload)
 
     result = FreezeResult(
@@ -262,7 +284,6 @@ def freeze_seed_runs(
     validation_report = _validation_report(
         prepared,
         validated_runs,
-        seed_evidence,
         canonical=canonical,
     )
     predictors = _copy_seed_artifacts(
@@ -326,7 +347,7 @@ def freeze_seed_runs(
         },
         "predictors": predictors,
     }
-    package["package_content_identity"] = _identity(package)
+    package["package_content_identity"] = _content_identity(package)
     _write_json(output / "package.json", package)
     return result
 
@@ -400,6 +421,24 @@ def _validate_seed_run(
     compatibility = _require_mapping(
         metadata.get("compatibility"), f"seed {run.seed} compatibility"
     )
+    if set(compatibility) != {
+        "source_identity",
+        "split_identity",
+        "preprocessing_identity",
+        "configuration_identity",
+        "precision_identity",
+        "backend_identity",
+        "software_identity",
+        "content_identities",
+    } or any(
+        not isinstance(compatibility.get(name), str) or not compatibility[name]
+        for name in (
+            "precision_identity",
+            "backend_identity",
+            "software_identity",
+        )
+    ):
+        raise ValueError(f"seed {run.seed} compatibility metadata is incomplete")
     expected_compatibility = {
         "source_identity": prepared.preprocessing.source_identity,
         "split_identity": prepared.preprocessing.split_identity,
@@ -414,13 +453,58 @@ def _validate_seed_run(
     }
     if compatibility.get("content_identities") != expected_content_identities:
         raise ValueError(f"seed {run.seed} partition identities are incompatible")
-    if metadata.get("compatibility_identity") != _identity(compatibility):
+    if metadata.get("compatibility_identity") != _content_identity(compatibility):
         raise ValueError(f"seed {run.seed} compatibility identity is stale")
     if (
         history.get("compatibility") != compatibility
         or history.get("compatibility_identity") != metadata.get("compatibility_identity")
     ):
         raise ValueError(f"seed {run.seed} history compatibility is stale")
+
+    try:
+        checkpoint = torch.load(
+            run.checkpoint_path,
+            map_location="cpu",
+            weights_only=True,
+        )
+    except (OSError, EOFError, RuntimeError, pickle.UnpicklingError) as error:
+        raise ValueError(f"seed {run.seed} checkpoint cannot be loaded") from error
+    if not isinstance(checkpoint, Mapping) or (
+        checkpoint.get("schema_version") != "baseline-checkpoint-v1"
+        or checkpoint.get("canonical") is not metadata.get("canonical")
+        or checkpoint.get("evidence_status") != run.evidence_status
+        or checkpoint.get("seed") != run.seed
+        or checkpoint.get("checkpoint_identity") != run.checkpoint_identity
+        or checkpoint.get("content_identity") != run.checkpoint_identity
+        or checkpoint.get("run_configuration_identity")
+        != run.run_configuration_identity
+        or checkpoint.get("compatibility") != compatibility
+        or checkpoint.get("compatibility_identity")
+        != metadata.get("compatibility_identity")
+        or checkpoint.get("source_checksums") != dict(prepared.source_checksums)
+        or checkpoint.get("source_identity")
+        != prepared.preprocessing.source_identity
+        or checkpoint.get("split_identity") != prepared.preprocessing.split_identity
+        or checkpoint.get("preprocessing_identity")
+        != prepared.preprocessing.content_identity
+        or checkpoint.get("feature_schema_identity")
+        != prepared.preprocessing.feature_schema_identity
+        or checkpoint.get("unit_schema_identity")
+        != prepared.preprocessing.unit_schema_identity
+        or checkpoint.get("architecture") != dict(_EXPECTED_ARCHITECTURE)
+    ):
+        raise ValueError(f"seed {run.seed} checkpoint identities are incompatible")
+    model_state = checkpoint.get("model_state")
+    optimizer_state = checkpoint.get("optimizer_state")
+    if (
+        not isinstance(model_state, Mapping)
+        or not isinstance(optimizer_state, Mapping)
+        or checkpoint.get("model_state_identity")
+        != _torch_state_identity(model_state)
+        or checkpoint.get("optimizer_state_identity")
+        != _torch_state_identity(optimizer_state)
+    ):
+        raise ValueError(f"seed {run.seed} checkpoint content identity is stale")
 
     try:
         predictions = np.load(run.validation_predictions_path, allow_pickle=False)
@@ -470,77 +554,49 @@ def _validate_seed_run(
         history=history,
         predictions=predictions,
         compatibility=compatibility,
-        protocol_identity=_identity(protocol),
+        protocol_identity=_content_identity(protocol),
     )
 
 
 def _validation_report(
     prepared: PreparedDataArtifact,
     runs: list[_ValidatedSeedRun],
-    comparator_evidence: list[SeedComparatorEvidence],
     *,
     canonical: bool,
 ) -> dict[str, object]:
     validation = prepared.partitions["validation"]
-    truths = validation.raw_aeps_fields.astype(np.float64)
+    truths = tuple(
+        tuple(float(value) for value in truth)
+        for truth in validation.raw_aeps_fields.astype(np.float64)
+    )
     points: tuple[tuple[float, float], ...] = tuple(
         (float(point[0]), float(point[1]))
         for point in prepared.preprocessing.element_points_mm
     )
-    comparator_by_seed = {item.seed: item for item in comparator_evidence}
-    seed_reports: list[SeedMetricReport] = []
+    seed_reports = []
     for run in runs:
-        predictions = run.predictions
-        case_metrics = tuple(
-            _case_metrics(
-                f"source_row_{source_row}",
-                tuple(float(value) for value in truth),
-                tuple(float(value) for value in prediction),
-                points,
-            )
-            for source_row, truth, prediction in zip(
-                validation.source_rows,
-                truths,
-                predictions,
-                strict=True,
-            )
+        predictions = tuple(
+            tuple(float(value) for value in prediction)
+            for prediction in run.predictions
         )
-        squared_errors = (predictions - truths) ** 2
-        hotspot_relative_l2 = [metric.hotspot_relative_l2 for metric in case_metrics]
-        peak_error = [metric.peak_magnitude_relative_error for metric in case_metrics]
-        location_error = [metric.hotspot_location_error_mm for metric in case_metrics]
-        overlap = [metric.hotspot_overlap for metric in case_metrics]
         compatibility = run.compatibility
         content_identities = _require_mapping(
             compatibility.get("content_identities"), "seed content identities"
         )
         seed_reports.append(
-            SeedMetricReport(
+            _seed_metric_report(
                 seed=run.result.seed,
                 checkpoint_identity=run.result.checkpoint_identity,
                 precision_identity=str(compatibility["precision_identity"]),
                 backend_identity=str(compatibility["backend_identity"]),
-                content_identity=_identity(content_identities),
+                content_identity=_content_identity(content_identities),
                 compatibility_identity=str(
                     run.metadata["compatibility_identity"]
                 ),
-                global_mse=float(np.mean(squared_errors)),
-                global_rmse=comparator_by_seed[
-                    run.result.seed
-                ].validation_global_rmse,
-                hotspot_relative_l2_median=_median(hotspot_relative_l2),
-                hotspot_relative_l2_p90=_nearest_rank_p90(hotspot_relative_l2),
-                peak_magnitude_relative_error_median=_median(peak_error),
-                peak_magnitude_relative_error_p90=_nearest_rank_p90(peak_error),
-                hotspot_location_error_mm_median=_median(location_error),
-                hotspot_location_error_mm_p90=_nearest_rank_p90(location_error),
-                hotspot_overlap_mean=sum(overlap) / len(overlap),
-                perfect_hotspot_overlap_fraction=(
-                    sum(value == 1.0 for value in overlap) / len(overlap)
-                ),
-                negative_prediction_fraction=float(np.mean(predictions < 0.0)),
-                most_negative_prediction=float(np.min(predictions)),
-                case_metrics=case_metrics,
+                case_order=[f"source_row_{row}" for row in validation.source_rows],
+                truths=truths,
+                predictions=predictions,
+                element_points_mm=points,
             )
         )
     report: dict[str, object] = {
@@ -565,7 +621,7 @@ def _validation_report(
             for name, summary in _cross_seed_summary(seed_reports).items()
         },
     }
-    report["report_content_identity"] = _identity(report)
+    report["report_content_identity"] = _content_identity(report)
     return report
 
 
@@ -656,7 +712,7 @@ def _load_json(path: Path, label: str) -> Mapping[str, Any]:
 def _verify_json_identity(payload: Mapping[str, Any], label: str) -> None:
     value = dict(payload)
     content_identity = value.pop("content_identity", None)
-    if content_identity != _identity(value):
+    if content_identity != _content_identity(value):
         raise ValueError(f"{label} content identity is stale")
 
 
@@ -664,18 +720,6 @@ def _require_mapping(value: object, label: str) -> Mapping[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be a JSON object")
     return value
-
-
-def _identity(payload: object) -> str:
-    return sha256(
-        json.dumps(
-            payload,
-            ensure_ascii=False,
-            allow_nan=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-    ).hexdigest()
 
 
 def _write_json(path: Path, payload: Mapping[str, object]) -> None:

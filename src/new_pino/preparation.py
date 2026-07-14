@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from hashlib import sha256
 import io
 import json
@@ -297,11 +297,26 @@ class PreparedPartition:
 
 
 @dataclass(frozen=True)
+class LockedTestPartitionBinding:
+    """Public provenance for the locked test partition, without test values."""
+
+    name: str
+    case_count: int
+    source_rows: tuple[int, ...]
+    source_identity: str
+    split_identity: str
+    preprocessing_identity: str
+    content_identity: str
+
+
+@dataclass(frozen=True)
 class PreparedDataArtifact(SourcePreflightArtifact):
     """A passing source preflight enriched with checkpoint-bound tensors."""
 
     preprocessing: PreprocessingState
     partitions: Mapping[str, PreparedPartition]
+    locked_test_binding: LockedTestPartitionBinding
+    _locked_test_partition: PreparedPartition = field(repr=False, compare=False)
 
 
 def prepare_sources(
@@ -922,6 +937,7 @@ def _prepare_checkpoint_bound_data(
             content_identity=_partition_content_identity(partition),
         )
 
+    locked_test_partition = partitions.pop("test")
     return PreparedDataArtifact(
         schema_version=artifact.schema_version,
         status=artifact.status,
@@ -933,6 +949,16 @@ def _prepare_checkpoint_bound_data(
         content_identity=artifact.content_identity,
         preprocessing=preprocessing,
         partitions=MappingProxyType(partitions),
+        locked_test_binding=LockedTestPartitionBinding(
+            name="test",
+            case_count=len(locked_test_partition.source_rows),
+            source_rows=locked_test_partition.source_rows,
+            source_identity=locked_test_partition.source_identity,
+            split_identity=locked_test_partition.split_identity,
+            preprocessing_identity=locked_test_partition.preprocessing_identity,
+            content_identity=locked_test_partition.content_identity,
+        ),
+        _locked_test_partition=locked_test_partition,
     )
 
 

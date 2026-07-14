@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 
 from new_pino import (
     BaselineLifecycle,
@@ -87,7 +88,6 @@ def _fake_seed_run(
     metadata_path = run_directory / "metadata.json"
     recovery_path = run_directory / "recovery.pt"
     run_history_path = run_directory / "run_history.jsonl"
-    checkpoint_path.write_bytes(b"synthetic checkpoint")
     np.save(predictions_path, predictions)
     recovery_path.write_bytes(b"synthetic recovery")
     run_history_path.write_text(
@@ -111,6 +111,39 @@ def _fake_seed_run(
             "validation_partition": prepared.partitions["validation"].content_identity,
         },
     }
+    torch.save(
+        {
+            "schema_version": "baseline-checkpoint-v1",
+            "canonical": False,
+            "evidence_status": "noncanonical_cpu_smoke",
+            "seed": seed,
+            "epoch": 1,
+            "validation_mse": float((comparator_rmse * rmse_ratio) ** 2),
+            "checkpoint_identity": checkpoint_identity,
+            "run_configuration_identity": run_configuration_identity,
+            "compatibility": compatibility,
+            "compatibility_identity": _identity(compatibility),
+            "content_identity": checkpoint_identity,
+            "source_checksums": dict(prepared.source_checksums),
+            "source_identity": prepared.preprocessing.source_identity,
+            "split_identity": prepared.preprocessing.split_identity,
+            "preprocessing_identity": prepared.preprocessing.content_identity,
+            "feature_schema_identity": (
+                prepared.preprocessing.feature_schema_identity
+            ),
+            "unit_schema_identity": prepared.preprocessing.unit_schema_identity,
+            "architecture": EXPECTED_ARCHITECTURE,
+            "model_state": {},
+            "optimizer_state": {},
+            "model_state_identity": (
+                "ac58fbe1f4bf5cfb1dba37e3cbe366f8d08e3e0b177aba0e337d1f53fd680fd8"
+            ),
+            "optimizer_state_identity": (
+                "ac58fbe1f4bf5cfb1dba37e3cbe366f8d08e3e0b177aba0e337d1f53fd680fd8"
+            ),
+        },
+        checkpoint_path,
+    )
     history: dict[str, object] = {
         "schema_version": "baseline-training-history-v1",
         "seed": seed,
@@ -222,6 +255,18 @@ class _LockedTestPartitions(Mapping[str, PreparedPartition]):
 
     def __len__(self) -> int:
         return len(self._partitions)
+
+
+def test_preparation_does_not_publicly_expose_the_locked_test_partition(
+    tmp_path: Path,
+) -> None:
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path / "repository"))
+
+    assert set(prepared.partitions) == {"training", "validation"}
+    with pytest.raises(KeyError):
+        prepared.partitions["test"]
+    assert prepared.locked_test_binding.name == "test"
+    assert prepared.locked_test_binding.case_count == 54
 
 
 def test_full_validation_gate_pass_freezes_five_disclosed_predictors(
@@ -381,6 +426,61 @@ def test_incompatible_seed_identities_are_rejected(tmp_path: Path) -> None:
     _write_json(runs[4].metadata_path, incompatible)
 
     with pytest.raises(FreezeContractError, match="common training protocol"):
+        BaselineLifecycle.freeze(
+            prepared,
+            runs,
+            repository_root=repository,
+            package_directory=tmp_path / "invalid-freeze",
+        )
+
+
+def test_different_backend_compatibility_identity_is_rejected(tmp_path: Path) -> None:
+    repository = synthetic_repository(tmp_path / "repository")
+    prepared = BaselineLifecycle.prepare(repository)
+    runs = list(_runs(tmp_path / "runs", prepared, [0.5] * 5))
+    incompatible = json.loads(runs[4].metadata_path.read_text(encoding="utf-8"))
+    incompatible["compatibility"]["backend_identity"] = "different-backend"
+    incompatible["compatibility_identity"] = _identity(
+        incompatible["compatibility"]
+    )
+    incompatible["content_identity"] = _identity(
+        {key: value for key, value in incompatible.items() if key != "content_identity"}
+    )
+    _write_json(runs[4].metadata_path, incompatible)
+    history = json.loads(runs[4].history_path.read_text(encoding="utf-8"))
+    history["compatibility"] = incompatible["compatibility"]
+    history["compatibility_identity"] = incompatible["compatibility_identity"]
+    history["content_identity"] = _identity(
+        {key: value for key, value in history.items() if key != "content_identity"}
+    )
+    _write_json(runs[4].history_path, history)
+    checkpoint = torch.load(
+        runs[4].checkpoint_path,
+        map_location="cpu",
+        weights_only=True,
+    )
+    checkpoint["compatibility"] = incompatible["compatibility"]
+    checkpoint["compatibility_identity"] = incompatible["compatibility_identity"]
+    torch.save(checkpoint, runs[4].checkpoint_path)
+
+    with pytest.raises(FreezeContractError, match="compatible precision, backend"):
+        BaselineLifecycle.freeze(
+            prepared,
+            runs,
+            repository_root=repository,
+            package_directory=tmp_path / "invalid-freeze",
+        )
+
+
+def test_corrupt_selected_checkpoint_is_rejected_before_package_eligibility(
+    tmp_path: Path,
+) -> None:
+    repository = synthetic_repository(tmp_path / "repository")
+    prepared = BaselineLifecycle.prepare(repository)
+    runs = list(_runs(tmp_path / "runs", prepared, [0.5] * 5))
+    runs[4].checkpoint_path.write_bytes(b"corrupt checkpoint")
+
+    with pytest.raises(FreezeContractError, match="checkpoint cannot be loaded"):
         BaselineLifecycle.freeze(
             prepared,
             runs,

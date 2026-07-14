@@ -455,7 +455,7 @@ def test_prepare_fits_checkpoint_bound_manifest_ordered_tensors(
             encoding="utf-8"
         )
     )
-    expected_sizes = {"training": 246, "validation": 51, "test": 54}
+    expected_sizes = {"training": 246, "validation": 51}
     expected_first_inputs = {
         "training": [
             0.29182151,
@@ -467,13 +467,6 @@ def test_prepare_fits_checkpoint_bound_manifest_ordered_tensors(
         "validation": [
             -0.43543485,
             1.27872670,
-            -1.22474492,
-            0.42033529,
-            -0.42033529,
-        ],
-        "test": [
-            -0.43543485,
-            0.18516661,
             -1.22474492,
             0.42033529,
             -0.42033529,
@@ -519,6 +512,23 @@ def test_prepare_fits_checkpoint_bound_manifest_ordered_tensors(
         assert not partition.trunk_inputs.flags.writeable
         assert not partition.raw_aeps_fields.flags.writeable
 
+    assert prepared.locked_test_binding.name == "test"
+    assert prepared.locked_test_binding.case_count == 54
+    assert prepared.locked_test_binding.source_rows == tuple(
+        case["source_row"]
+        for case in manifest["cases"]
+        if case["partition"] == "test"
+    )
+    assert prepared.locked_test_binding.source_identity == preprocessing.source_identity
+    assert prepared.locked_test_binding.split_identity == preprocessing.split_identity
+    assert (
+        prepared.locked_test_binding.preprocessing_identity
+        == preprocessing.content_identity
+    )
+    assert re.fullmatch(
+        r"[0-9a-f]{64}", prepared.locked_test_binding.content_identity
+    )
+
     training = prepared.partitions["training"]
     assert training.source_rows[0] == 172
     np.testing.assert_allclose(
@@ -543,6 +553,7 @@ def test_prepare_fits_checkpoint_bound_manifest_ordered_tensors(
         name: partition.content_identity
         for name, partition in prepared.partitions.items()
     }
+    assert repeated.locked_test_binding == prepared.locked_test_binding
 
 
 def test_prepare_preserves_exact_material_knots_in_branch_features(
@@ -561,9 +572,12 @@ def test_prepare_preserves_exact_material_knots_in_branch_features(
             for partition in prepared.partitions.values()
         ]
     )
-    assert rows_at_knot.shape == (27, 5)
-    np.testing.assert_array_equal(rows_at_knot[:, 3], np.full(27, 9.0))
-    np.testing.assert_array_equal(rows_at_knot[:, 4], np.full(27, 0.33))
+    assert rows_at_knot.shape[1] == 5
+    assert len(rows_at_knot) > 0
+    np.testing.assert_array_equal(rows_at_knot[:, 3], np.full(len(rows_at_knot), 9.0))
+    np.testing.assert_array_equal(
+        rows_at_knot[:, 4], np.full(len(rows_at_knot), 0.33)
+    )
 
 
 def test_prepare_normalizes_extreme_finite_coordinates_without_overflow(
