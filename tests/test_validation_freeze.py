@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
+import csv
 from dataclasses import replace
 from hashlib import sha256
 import json
@@ -20,6 +21,7 @@ from new_pino import (
     SeedTrainingResult,
 )
 from new_pino.preparation import PreparedDataArtifact, PreparedPartition
+from new_pino.training import _checkpoint_identity
 from test_source_preflight import synthetic_repository
 
 
@@ -63,12 +65,31 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
 
+def _gate_artifacts(
+    root: Path,
+    *,
+    training_aeps: float,
+) -> tuple[Path, PreparedDataArtifact]:
+    repository = synthetic_repository(root)
+    initial = BaselineLifecycle.prepare(repository)
+    validation_rows = set(initial.partitions["validation"].source_rows)
+    source_path = repository / "data" / "combined_training_data.csv"
+    with source_path.open("r", encoding="utf-8", newline="") as stream:
+        rows = list(csv.reader(stream))
+    for source_row, row in enumerate(rows[1:], start=2):
+        value = 1e-6 if source_row in validation_rows else training_aeps
+        row[3:] = [str(value)] * 48
+    with source_path.open("w", encoding="utf-8", newline="") as stream:
+        csv.writer(stream).writerows(rows)
+    (repository / "data" / "splits" / "baseline_split_seed42.json").unlink()
+    return repository, BaselineLifecycle.prepare(repository)
+
+
 def _fake_seed_run(
     root: Path,
     prepared: PreparedDataArtifact,
     *,
     seed: int,
-    rmse_ratio: float,
     finite: bool = True,
 ) -> SeedTrainingResult:
     run = BaselineLifecycle.train(
@@ -77,18 +98,12 @@ def _fake_seed_run(
         artifact_directory=root / f"seed-{seed}",
         smoke_max_epochs=1,
     )
-    comparator_rmse = _comparator_rmse(prepared)
-    predictions = (
-        prepared.partitions["validation"].raw_aeps_fields.astype(np.float64)
-        + comparator_rmse * rmse_ratio
-    )
-    if not finite:
-        predictions[0, 0] = np.nan
+    if finite:
+        return run
+    predictions = np.load(run.validation_predictions_path)
+    predictions[0, 0] = np.nan
     np.save(run.validation_predictions_path, predictions)
-
-    validation_mse = float((comparator_rmse * rmse_ratio) ** 2)
     metadata = json.loads(run.metadata_path.read_text(encoding="utf-8"))
-    metadata["selected_checkpoint"]["validation_mse"] = validation_mse
     metadata["validation_predictions"] = {
         "shape": [51, 48],
         "dtype": "float64",
@@ -98,18 +113,50 @@ def _fake_seed_run(
         {key: value for key, value in metadata.items() if key != "content_identity"}
     )
     _write_json(run.metadata_path, metadata)
-    return replace(run, best_validation_mse=validation_mse)
+    return run
 
 
 def _runs(
     root: Path,
     prepared: PreparedDataArtifact,
-    ratios: list[float],
+    count: int = 5,
 ) -> tuple[SeedTrainingResult, ...]:
     return tuple(
-        _fake_seed_run(root, prepared, seed=seed, rmse_ratio=ratio)
-        for seed, ratio in enumerate(ratios)
+        _fake_seed_run(root, prepared, seed=seed)
+        for seed in range(count)
     )
+
+
+def _rewrite_checkpoint_binding(
+    run: SeedTrainingResult,
+    metadata: dict[str, object],
+    checkpoint: dict[str, object],
+) -> SeedTrainingResult:
+    checkpoint_identity, model_identity, optimizer_identity = _checkpoint_identity(
+        seed=run.seed,
+        epoch=run.best_epoch,
+        validation_mse=run.best_validation_mse,
+        model_state=checkpoint["model_state"],
+        optimizer_state=checkpoint["optimizer_state"],
+        run_configuration_identity=run.run_configuration_identity,
+        compatibility_identity=str(checkpoint["compatibility_identity"]),
+        identities={
+            name: value
+            for name, value in metadata["identities"].items()
+            if name != "run_configuration"
+        },
+    )
+    checkpoint["checkpoint_identity"] = checkpoint_identity
+    checkpoint["content_identity"] = checkpoint_identity
+    checkpoint["model_state_identity"] = model_identity
+    checkpoint["optimizer_state_identity"] = optimizer_identity
+    torch.save(checkpoint, run.checkpoint_path)
+    metadata["selected_checkpoint"]["identity"] = checkpoint_identity
+    metadata["content_identity"] = _identity(
+        {key: value for key, value in metadata.items() if key != "content_identity"}
+    )
+    _write_json(run.metadata_path, metadata)
+    return replace(run, checkpoint_identity=checkpoint_identity)
 
 
 class _LockedTestPartitions(Mapping[str, PreparedPartition]):
@@ -131,7 +178,7 @@ class _LockedTestPartitions(Mapping[str, PreparedPartition]):
 def test_preparation_does_not_publicly_expose_the_locked_test_partition(
     tmp_path: Path,
 ) -> None:
-    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path / "repository"))
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
 
     assert set(prepared.partitions) == {"training", "validation"}
     with pytest.raises(KeyError):
@@ -143,11 +190,10 @@ def test_preparation_does_not_publicly_expose_the_locked_test_partition(
 def test_full_validation_gate_pass_freezes_five_disclosed_predictors(
     tmp_path: Path,
 ) -> None:
-    repository = synthetic_repository(tmp_path / "repository")
-    prepared = BaselineLifecycle.prepare(repository)
+    repository, prepared = _gate_artifacts(tmp_path, training_aeps=1.4)
     locked = replace(prepared, partitions=_LockedTestPartitions(prepared.partitions))
     package_directory = tmp_path / "frozen"
-    runs = _runs(tmp_path / "runs", prepared, [0.5] * 5)
+    runs = _runs(tmp_path / "runs", prepared)
 
     result = BaselineLifecycle.freeze(
         locked,
@@ -161,9 +207,7 @@ def test_full_validation_gate_pass_freezes_five_disclosed_predictors(
     assert result.evidence_status == "noncanonical_frozen_package"
     assert result.test_partition_status == "locked_ineligible_noncanonical"
     assert result.comparator_global_rmse == pytest.approx(_comparator_rmse(prepared))
-    assert result.mean_seed_global_rmse == pytest.approx(
-        result.comparator_global_rmse * 0.5
-    )
+    assert result.mean_seed_global_rmse < result.comparator_global_rmse
     assert result.passing_seed_count == 5
     assert [seed.comparator_status for seed in result.seed_evidence] == ["passed"] * 5
     assert result.package_path == package_directory
@@ -210,12 +254,11 @@ def test_full_validation_gate_pass_freezes_five_disclosed_predictors(
 def test_one_nonpassing_seed_is_retained_when_majority_and_mean_pass(
     tmp_path: Path,
 ) -> None:
-    repository = synthetic_repository(tmp_path / "repository")
-    prepared = BaselineLifecycle.prepare(repository)
+    repository, prepared = _gate_artifacts(tmp_path, training_aeps=1.3)
 
     result = BaselineLifecycle.freeze(
         prepared,
-        _runs(tmp_path / "runs", prepared, [0.5, 0.6, 0.7, 0.8, 1.1]),
+        _runs(tmp_path / "runs", prepared),
         repository_root=repository,
         package_directory=tmp_path / "frozen",
     )
@@ -225,41 +268,46 @@ def test_one_nonpassing_seed_is_retained_when_majority_and_mean_pass(
     assert [seed.comparator_status for seed in result.seed_evidence] == [
         "passed",
         "passed",
-        "passed",
-        "passed",
         "not_passed",
+        "passed",
+        "passed",
     ]
     package = json.loads((result.package_path / "package.json").read_text(encoding="utf-8"))
     assert len(package["predictors"]) == 5
-    assert package["predictors"][4]["validation_comparator_status"] == "not_passed"
+    assert package["predictors"][2]["validation_comparator_status"] == "not_passed"
 
 
 @pytest.mark.parametrize(
-    ("ratios", "reason"),
+    ("training_aeps", "reasons"),
     [
-        ([0.5, 0.6, 0.7, 1.1, 1.2], "insufficient_seed_majority"),
-        ([0.9, 0.9, 0.9, 0.9, 2.0], "five_seed_mean_not_better"),
+        (1.2, ("insufficient_seed_majority",)),
+        (
+            1.1,
+            ("insufficient_seed_majority", "five_seed_mean_not_better"),
+        ),
     ],
 )
 def test_nonpassing_gate_keeps_test_locked_and_requires_all_five_to_rerun(
     tmp_path: Path,
-    ratios: list[float],
-    reason: str,
+    training_aeps: float,
+    reasons: tuple[str, ...],
 ) -> None:
-    repository = synthetic_repository(tmp_path / "repository")
-    prepared = BaselineLifecycle.prepare(repository)
+    repository, prepared = _gate_artifacts(
+        tmp_path,
+        training_aeps=training_aeps,
+    )
     locked = replace(prepared, partitions=_LockedTestPartitions(prepared.partitions))
     output = tmp_path / "failed-freeze"
 
     result = BaselineLifecycle.freeze(
         locked,
-        _runs(tmp_path / "runs", prepared, ratios),
+        _runs(tmp_path / "runs", prepared),
         repository_root=repository,
         package_directory=output,
     )
 
     assert result.gate_passed is False
-    assert result.failure_reasons == (reason,)
+    assert result.failure_reasons == reasons
     assert result.test_partition_status == "locked_gate_failed"
     assert result.package_path is None
     assert result.revision_requirement == (
@@ -270,14 +318,13 @@ def test_nonpassing_gate_keeps_test_locked_and_requires_all_five_to_rerun(
 
 
 def test_incomplete_seed_set_is_rejected_without_test_artifacts(tmp_path: Path) -> None:
-    repository = synthetic_repository(tmp_path / "repository")
-    prepared = BaselineLifecycle.prepare(repository)
+    repository, prepared = _gate_artifacts(tmp_path, training_aeps=1.4)
     output = tmp_path / "invalid-freeze"
 
     with pytest.raises(FreezeContractError, match="exactly seeds 0 through 4") as raised:
         BaselineLifecycle.freeze(
             prepared,
-            _runs(tmp_path / "runs", prepared, [0.5] * 4),
+            _runs(tmp_path / "runs", prepared, count=4),
             repository_root=repository,
             package_directory=output,
         )
@@ -287,9 +334,8 @@ def test_incomplete_seed_set_is_rejected_without_test_artifacts(tmp_path: Path) 
 
 
 def test_incompatible_seed_identities_are_rejected(tmp_path: Path) -> None:
-    repository = synthetic_repository(tmp_path / "repository")
-    prepared = BaselineLifecycle.prepare(repository)
-    runs = list(_runs(tmp_path / "runs", prepared, [0.5] * 5))
+    repository, prepared = _gate_artifacts(tmp_path, training_aeps=1.4)
+    runs = list(_runs(tmp_path / "runs", prepared))
     incompatible = json.loads(runs[4].metadata_path.read_text(encoding="utf-8"))
     incompatible["environment"]["protocol"] = "different-protocol"
     incompatible["content_identity"] = _identity(
@@ -307,9 +353,8 @@ def test_incompatible_seed_identities_are_rejected(tmp_path: Path) -> None:
 
 
 def test_different_backend_compatibility_identity_is_rejected(tmp_path: Path) -> None:
-    repository = synthetic_repository(tmp_path / "repository")
-    prepared = BaselineLifecycle.prepare(repository)
-    runs = list(_runs(tmp_path / "runs", prepared, [0.5] * 5))
+    repository, prepared = _gate_artifacts(tmp_path, training_aeps=1.4)
+    runs = list(_runs(tmp_path / "runs", prepared))
     incompatible = json.loads(runs[4].metadata_path.read_text(encoding="utf-8"))
     incompatible["compatibility"]["backend_identity"] = "different-backend"
     incompatible["compatibility_identity"] = _identity(
@@ -333,7 +378,7 @@ def test_different_backend_compatibility_identity_is_rejected(tmp_path: Path) ->
     )
     checkpoint["compatibility"] = incompatible["compatibility"]
     checkpoint["compatibility_identity"] = incompatible["compatibility_identity"]
-    torch.save(checkpoint, runs[4].checkpoint_path)
+    runs[4] = _rewrite_checkpoint_binding(runs[4], incompatible, checkpoint)
 
     with pytest.raises(FreezeContractError, match="compatible precision, backend"):
         BaselineLifecycle.freeze(
@@ -347,9 +392,8 @@ def test_different_backend_compatibility_identity_is_rejected(tmp_path: Path) ->
 def test_corrupt_selected_checkpoint_is_rejected_before_package_eligibility(
     tmp_path: Path,
 ) -> None:
-    repository = synthetic_repository(tmp_path / "repository")
-    prepared = BaselineLifecycle.prepare(repository)
-    runs = list(_runs(tmp_path / "runs", prepared, [0.5] * 5))
+    repository, prepared = _gate_artifacts(tmp_path, training_aeps=1.4)
+    runs = list(_runs(tmp_path / "runs", prepared))
     runs[4].checkpoint_path.write_bytes(b"corrupt checkpoint")
 
     with pytest.raises(FreezeContractError, match="checkpoint cannot be loaded"):
@@ -364,17 +408,16 @@ def test_corrupt_selected_checkpoint_is_rejected_before_package_eligibility(
 def test_incompatible_model_state_is_rejected_before_package_eligibility(
     tmp_path: Path,
 ) -> None:
-    repository = synthetic_repository(tmp_path / "repository")
-    prepared = BaselineLifecycle.prepare(repository)
-    runs = list(_runs(tmp_path / "runs", prepared, [0.5] * 5))
+    repository, prepared = _gate_artifacts(tmp_path, training_aeps=1.4)
+    runs = list(_runs(tmp_path / "runs", prepared))
     checkpoint = torch.load(
         runs[4].checkpoint_path,
         map_location="cpu",
         weights_only=True,
     )
     checkpoint["model_state"] = {}
-    checkpoint["model_state_identity"] = sha256(b"mapping\0").hexdigest()
-    torch.save(checkpoint, runs[4].checkpoint_path)
+    metadata = json.loads(runs[4].metadata_path.read_text(encoding="utf-8"))
+    runs[4] = _rewrite_checkpoint_binding(runs[4], metadata, checkpoint)
 
     with pytest.raises(FreezeContractError, match="model state is incompatible"):
         BaselineLifecycle.freeze(
@@ -385,16 +428,43 @@ def test_incompatible_model_state_is_rejected_before_package_eligibility(
         )
 
 
+def test_validation_predictions_must_be_reproduced_by_the_selected_checkpoint(
+    tmp_path: Path,
+) -> None:
+    repository, prepared = _gate_artifacts(tmp_path, training_aeps=1.4)
+    runs = list(_runs(tmp_path / "runs", prepared))
+    predictions = np.load(runs[4].validation_predictions_path)
+    predictions[0, 0] += 1e-6
+    np.save(runs[4].validation_predictions_path, predictions)
+    metadata = json.loads(runs[4].metadata_path.read_text(encoding="utf-8"))
+    metadata["validation_predictions"]["content_identity"] = sha256(
+        predictions.tobytes()
+    ).hexdigest()
+    metadata["content_identity"] = _identity(
+        {key: value for key, value in metadata.items() if key != "content_identity"}
+    )
+    _write_json(runs[4].metadata_path, metadata)
+
+    with pytest.raises(
+        FreezeContractError,
+        match="validation predictions do not match its checkpoint",
+    ):
+        BaselineLifecycle.freeze(
+            prepared,
+            runs,
+            repository_root=repository,
+            package_directory=tmp_path / "invalid-freeze",
+        )
+
+
 def test_non_finite_validation_evidence_is_rejected(tmp_path: Path) -> None:
-    repository = synthetic_repository(tmp_path / "repository")
-    prepared = BaselineLifecycle.prepare(repository)
-    runs = list(_runs(tmp_path / "runs", prepared, [0.5] * 4))
+    repository, prepared = _gate_artifacts(tmp_path, training_aeps=1.4)
+    runs = list(_runs(tmp_path / "runs", prepared, count=4))
     runs.append(
         _fake_seed_run(
             tmp_path / "runs",
             prepared,
             seed=4,
-            rmse_ratio=0.5,
             finite=False,
         )
     )
@@ -411,9 +481,8 @@ def test_non_finite_validation_evidence_is_rejected(tmp_path: Path) -> None:
 def test_frozen_cpu_smoke_package_uses_explicit_prediction_contract_and_stays_locked(
     tmp_path: Path,
 ) -> None:
-    repository = synthetic_repository(tmp_path / "repository")
-    prepared = BaselineLifecycle.prepare(repository)
-    runs = _runs(tmp_path / "training", prepared, [0.5] * 5)
+    repository, prepared = _gate_artifacts(tmp_path, training_aeps=1.4)
+    runs = _runs(tmp_path / "training", prepared)
 
     package_path = tmp_path / "frozen"
     freeze = BaselineLifecycle.freeze(

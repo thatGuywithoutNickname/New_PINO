@@ -28,7 +28,7 @@ from .training import (
     SeedTrainingResult,
     _CANONICAL_SEEDS,
     _EXPECTED_ARCHITECTURE,
-    _torch_state_identity,
+    _checkpoint_identity,
 )
 
 
@@ -475,6 +475,8 @@ def _validate_seed_run(
         or checkpoint.get("canonical") is not metadata.get("canonical")
         or checkpoint.get("evidence_status") != run.evidence_status
         or checkpoint.get("seed") != run.seed
+        or checkpoint.get("epoch") != run.best_epoch
+        or checkpoint.get("validation_mse") != run.best_validation_mse
         or checkpoint.get("checkpoint_identity") != run.checkpoint_identity
         or checkpoint.get("content_identity") != run.checkpoint_identity
         or checkpoint.get("run_configuration_identity")
@@ -497,13 +499,38 @@ def _validate_seed_run(
         raise ValueError(f"seed {run.seed} checkpoint identities are incompatible")
     model_state = checkpoint.get("model_state")
     optimizer_state = checkpoint.get("optimizer_state")
+    checkpoint_identities = {
+        name: value
+        for name, value in expected_identities.items()
+        if name != "run_configuration"
+    }
+    try:
+        (
+            actual_checkpoint_identity,
+            actual_model_state_identity,
+            actual_optimizer_state_identity,
+        ) = _checkpoint_identity(
+            seed=run.seed,
+            epoch=run.best_epoch,
+            validation_mse=run.best_validation_mse,
+            model_state=model_state,
+            optimizer_state=optimizer_state,
+            run_configuration_identity=run.run_configuration_identity,
+            compatibility_identity=str(metadata["compatibility_identity"]),
+            identities=checkpoint_identities,
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            f"seed {run.seed} checkpoint content identity is stale"
+        ) from error
     if (
         not isinstance(model_state, Mapping)
         or not isinstance(optimizer_state, Mapping)
         or checkpoint.get("model_state_identity")
-        != _torch_state_identity(model_state)
+        != actual_model_state_identity
         or checkpoint.get("optimizer_state_identity")
-        != _torch_state_identity(optimizer_state)
+        != actual_optimizer_state_identity
+        or actual_checkpoint_identity != run.checkpoint_identity
     ):
         raise ValueError(f"seed {run.seed} checkpoint content identity is stale")
     model = _DeepONet()
@@ -534,9 +561,42 @@ def _validate_seed_run(
         "content_identity": sha256(predictions.tobytes()).hexdigest(),
     }:
         raise ValueError(f"seed {run.seed} validation prediction identity is stale")
-    validation_truth = prepared.partitions["validation"].raw_aeps_fields.astype(
-        np.float64
+    environment = _require_mapping(
+        metadata.get("environment"), f"seed {run.seed} environment"
     )
+    device_identifier = environment.get("device_identifier")
+    if device_identifier not in {"cpu", "cuda:0"} or (
+        device_identifier == "cuda:0" and not torch.cuda.is_available()
+    ):
+        raise ValueError(
+            f"seed {run.seed} checkpoint validation backend is unavailable"
+        )
+    device = torch.device(str(device_identifier))
+    model.to(device=device, dtype=torch.float32)
+    model.eval()
+    validation = prepared.partitions["validation"]
+    try:
+        with torch.no_grad(), torch.autocast(
+            device_type=device.type,
+            enabled=False,
+        ):
+            reproduced_predictions = model(
+                torch.from_numpy(
+                    np.array(validation.branch_inputs, copy=True)
+                ).to(device),
+                torch.from_numpy(
+                    np.array(validation.trunk_inputs, copy=True)
+                ).to(device),
+            ).to(dtype=torch.float64).cpu().numpy()
+    except RuntimeError as error:
+        raise ValueError(
+            f"seed {run.seed} checkpoint validation predictions cannot be reproduced"
+        ) from error
+    if not np.array_equal(reproduced_predictions, predictions):
+        raise ValueError(
+            f"seed {run.seed} validation predictions do not match its checkpoint"
+        )
+    validation_truth = validation.raw_aeps_fields.astype(np.float64)
     validation_mse = float(np.mean((predictions - validation_truth) ** 2))
     if not math.isclose(
         validation_mse,
