@@ -28,6 +28,10 @@ from .preparation import (
     prepare_sources,
     _unit_schema_content_identity,
 )
+from .reporting import (
+    EvaluationReport,
+    _evaluate_fixture,
+)
 
 
 _BRANCH_WIDTHS = (5, 32, 64, 32, 16)
@@ -271,6 +275,31 @@ class BaselineLifecycle:
             element_indices=tuple(range(1, len(predictions) + 1)),
             evidence_status=self._package.evidence_status,
             provenance=provenance,
+        )
+
+    def evaluate(
+        self,
+        fixture_path: str | Path,
+        *,
+        artifact_path: str | Path | None = None,
+    ) -> EvaluationReport:
+        """Produce an auditable noncanonical report from an authorized fixture."""
+
+        self._verify_runtime_sources()
+        package = self._package
+        return _evaluate_fixture(
+            fixture_path,
+            source_checksums=package.source_checksums.as_dict(),
+            source_identity=package.source_identity,
+            split_identity=package.split_identity,
+            preprocessing_identity=package.preprocessing.content_identity,
+            run_configuration_identity=package.run_configuration_identity,
+            predictor_identities=tuple(
+                (predictor.seed, predictor.checkpoint_identity)
+                for predictor in package.predictors
+            ),
+            element_points_mm=package.preprocessing.element_points_mm,
+            artifact_path=artifact_path,
         )
 
     def _validate_request(self, request: PredictionRequest) -> None:
