@@ -11,8 +11,11 @@ from pathlib import Path
 import struct
 from typing import Any, Mapping
 
+import torch
+
 from .preparation import (
     PreparedDataArtifact,
+    PreparedPartition,
     _AEPS_ELEMENT_ORDER,
     _BRANCH_FEATURE_ORDER,
     _BRANCH_FEATURE_UNITS,
@@ -28,6 +31,7 @@ from .preparation import (
     prepare_sources,
     _unit_schema_content_identity,
 )
+from .freezing import FreezeResult, freeze_seed_runs
 from .reporting import (
     EvaluationReport,
     _content_identity,
@@ -37,7 +41,9 @@ from .training import (
     SeedTrainingResult,
     _BRANCH_WIDTHS,
     _EXPECTED_ARCHITECTURE,
+    _DeepONet,
     _TRUNK_WIDTHS,
+    _torch_state_identity,
     train_seed,
 )
 
@@ -132,6 +138,11 @@ class _FixtureCheckpoint:
 
 
 @dataclass(frozen=True)
+class _FrozenCheckpoint:
+    path: Path
+
+
+@dataclass(frozen=True)
 class _FixturePredictor:
     seed: int
     checkpoint_identity: str
@@ -140,12 +151,16 @@ class _FixturePredictor:
     content_identity: str
     compatibility_identity: str
     validation_comparator_status: str
-    checkpoint: _FixtureCheckpoint
+    run_configuration_identity: str
+    checkpoint: _FixtureCheckpoint | _FrozenCheckpoint
 
 
 @dataclass(frozen=True)
 class _FixturePackage:
+    canonical: bool
     evidence_status: str
+    gate_status: str
+    test_partition_status: str
     source_checksums: _SourceChecksums
     source_identity: str
     split_identity: str
@@ -203,6 +218,24 @@ class BaselineLifecycle:
         )
 
     @classmethod
+    def freeze(
+        cls,
+        prepared: PreparedDataArtifact,
+        seed_runs: tuple[SeedTrainingResult, ...] | list[SeedTrainingResult],
+        *,
+        repository_root: str | Path,
+        package_directory: str | Path,
+    ) -> FreezeResult:
+        """Apply the validation-only five-seed freeze gate."""
+
+        return freeze_seed_runs(
+            prepared,
+            seed_runs,
+            repository_root=repository_root,
+            package_directory=package_directory,
+        )
+
+    @classmethod
     def from_package(
         cls,
         package_path: str | Path,
@@ -216,7 +249,12 @@ class BaselineLifecycle:
             raise PredictionContractError(
                 f"fixture package metadata {metadata_path} cannot be loaded: {error}"
             ) from error
-        package = _parse_fixture_package(metadata)
+        if isinstance(metadata, dict) and metadata.get("schema_version") == (
+            "baseline-frozen-package-v1"
+        ):
+            package = _parse_frozen_package(metadata, resolved_package_path)
+        else:
+            package = _parse_fixture_package(metadata)
         return cls(
             package,
             package_path=resolved_package_path,
@@ -252,28 +290,38 @@ class BaselineLifecycle:
             )
         )
 
-        recipe = predictor.checkpoint
-        branch_latent = _mlp(
-            branch,
-            _BRANCH_WIDTHS,
-            recipe,
-            path_offset=0,
-        )
-        predictions: list[float] = []
-        for point in preprocessing.normalized_trunk_coordinates:
-            trunk = (
-                _as_float32(point[0]),
-                _as_float32(point[1]),
-            )
-            trunk_latent = _mlp(
-                trunk,
-                _TRUNK_WIDTHS,
+        if isinstance(predictor.checkpoint, _FixtureCheckpoint):
+            recipe = predictor.checkpoint
+            branch_latent = _mlp(
+                branch,
+                _BRANCH_WIDTHS,
                 recipe,
-                path_offset=4,
+                path_offset=0,
             )
-            predictions.append(
-                sum(left * right for left, right in zip(branch_latent, trunk_latent))
-                + recipe.fusion_bias
+            predictions: list[float] = []
+            for point in preprocessing.normalized_trunk_coordinates:
+                trunk = (
+                    _as_float32(point[0]),
+                    _as_float32(point[1]),
+                )
+                trunk_latent = _mlp(
+                    trunk,
+                    _TRUNK_WIDTHS,
+                    recipe,
+                    path_offset=4,
+                )
+                predictions.append(
+                    sum(
+                        left * right
+                        for left, right in zip(branch_latent, trunk_latent)
+                    )
+                    + recipe.fusion_bias
+                )
+        else:
+            predictions = _predict_frozen_checkpoint(
+                predictor,
+                branch,
+                preprocessing.normalized_trunk_coordinates,
             )
         if not all(math.isfinite(value) for value in predictions):
             raise PredictionContractError(
@@ -290,7 +338,7 @@ class BaselineLifecycle:
             preprocessing_identity=preprocessing.content_identity,
             feature_schema_identity=preprocessing.feature_schema_identity,
             unit_schema_identity=preprocessing.unit_schema_identity,
-            run_configuration_identity=self._package.run_configuration_identity,
+            run_configuration_identity=predictor.run_configuration_identity,
         )
         return PredictionResult(
             aeps_field=tuple(predictions),
@@ -298,6 +346,44 @@ class BaselineLifecycle:
             evidence_status=self._package.evidence_status,
             provenance=provenance,
         )
+
+    def authorize_locked_test_partition(
+        self,
+        prepared: PreparedDataArtifact,
+    ) -> PreparedPartition:
+        """Return the locked partition only for compatible canonical freeze evidence."""
+
+        package = self._package
+        if (
+            not package.canonical
+            or package.gate_status != "passed"
+            or package.test_partition_status != "eligible_locked_test"
+        ):
+            raise PredictionContractError(
+                "only a passing canonical frozen package can authorize the real "
+                "locked test partition"
+            )
+        self._verify_runtime_sources()
+        for predictor in package.predictors:
+            _load_frozen_model(predictor, require_canonical=True)
+        preprocessing = prepared.preprocessing
+        expected = (
+            package.source_checksums.as_dict(),
+            package.source_identity,
+            package.split_identity,
+            package.preprocessing.content_identity,
+        )
+        actual = (
+            dict(prepared.source_checksums),
+            preprocessing.source_identity,
+            preprocessing.split_identity,
+            preprocessing.content_identity,
+        )
+        if actual != expected:
+            raise PredictionContractError(
+                "the prepared data is incompatible with the frozen package"
+            )
+        return prepared.partitions["test"]
 
     def evaluate(
         self,
@@ -824,6 +910,7 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
                 content_identity=content_identity,
                 compatibility_identity=compatibility_identity,
                 validation_comparator_status=str(comparator_status),
+                run_configuration_identity=run_configuration_identity,
                 checkpoint=_FixtureCheckpoint(
                     phase=recipe_values[0],
                     weight_scale=recipe_values[1],
@@ -834,7 +921,10 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
         )
 
     return _FixturePackage(
+        canonical=False,
         evidence_status="noncanonical_fixture",
+        gate_status="fixture_only",
+        test_partition_status="locked_ineligible_noncanonical",
         source_checksums=source_checksums,
         source_identity=str(source_identity),
         split_identity=split_identity,
@@ -857,6 +947,478 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
         ),
         predictors=tuple(parsed_predictors),
     )
+
+
+def _parse_frozen_package(
+    metadata: object,
+    package_path: Path,
+) -> _FixturePackage:
+    package = _require_mapping(metadata, "frozen package")
+    package_without_identity = dict(package)
+    package_content_identity = package_without_identity.pop(
+        "package_content_identity", None
+    )
+    if package_content_identity != _content_identity(package_without_identity):
+        raise PredictionContractError("frozen package content identity is stale")
+    if package.get("gate_status") != "passed":
+        raise PredictionContractError("a frozen package requires a passing gate")
+    canonical = package.get("canonical")
+    evidence_status = package.get("evidence_status")
+    test_partition_status = package.get("test_partition_status")
+    expected_status = (
+        ("canonical_frozen_package", "eligible_locked_test")
+        if canonical is True
+        else (
+            "noncanonical_frozen_package",
+            "locked_ineligible_noncanonical",
+        )
+    )
+    if canonical not in {True, False} or (
+        evidence_status,
+        test_partition_status,
+    ) != expected_status:
+        raise PredictionContractError(
+            "frozen package canonical and locked-test statuses are inconsistent"
+        )
+
+    gate = _require_mapping(package.get("gate_evidence"), "frozen gate evidence")
+    gate_without_identity = dict(gate)
+    gate_identity = gate_without_identity.pop("content_identity", None)
+    if (
+        gate_identity != _content_identity(gate_without_identity)
+        or gate.get("gate_passed") is not True
+        or gate.get("canonical") is not canonical
+    ):
+        raise PredictionContractError("frozen package gate evidence is incompatible")
+
+    checksums = _require_mapping(
+        package.get("source_checksums"), "frozen source checksums"
+    )
+    if set(checksums) != {
+        "training_data",
+        "element_points",
+        "material_properties",
+    } or any(not _is_sha256(value) for value in checksums.values()):
+        raise PredictionContractError(
+            "frozen source checksums must bind all three canonical sources"
+        )
+    source_checksums = _SourceChecksums(
+        training_data=str(checksums["training_data"]),
+        element_points=str(checksums["element_points"]),
+        material_properties=str(checksums["material_properties"]),
+    )
+    source_identity = package.get("source_identity")
+    if source_identity != _source_content_identity(source_checksums.as_dict()):
+        raise PredictionContractError(
+            "frozen source identity does not match its checksums"
+        )
+    split_identity = _require_nonempty_identity(package, "split_identity")
+    if package.get("architecture") != dict(_EXPECTED_ARCHITECTURE):
+        raise PredictionContractError("frozen architecture is incompatible")
+    preprocessing = _parse_frozen_preprocessing(
+        package.get("preprocessing"),
+        source_checksums=source_checksums,
+        source_identity=str(source_identity),
+        split_identity=split_identity,
+    )
+    protocol = _require_mapping(
+        package.get("training_protocol"), "frozen training protocol"
+    )
+    protocol_identity = _require_nonempty_identity(protocol, "identity")
+    protocol_configuration = _require_mapping(
+        protocol.get("configuration"), "frozen training protocol configuration"
+    )
+    if protocol_identity != _content_identity(protocol_configuration):
+        raise PredictionContractError("frozen training protocol identity is stale")
+
+    raw_predictors = package.get("predictors")
+    if not isinstance(raw_predictors, list) or len(raw_predictors) != 5:
+        raise PredictionContractError(
+            "frozen package must contain exactly five explicit predictors"
+        )
+    predictors: list[_FixturePredictor] = []
+    for index, raw_predictor in enumerate(raw_predictors, start=1):
+        predictor = _require_mapping(raw_predictor, f"frozen predictor {index}")
+        seed = predictor.get("seed")
+        checkpoint_identity = predictor.get("checkpoint_identity")
+        if seed != index - 1 or not isinstance(checkpoint_identity, str) or not checkpoint_identity:
+            raise PredictionContractError(
+                "frozen predictors must contain seeds 0 through 4 in order with "
+                "distinct checkpoint identities"
+            )
+        comparator_status = predictor.get("validation_comparator_status")
+        if comparator_status not in {"passed", "not_passed"}:
+            raise PredictionContractError(
+                f"frozen predictor {index} comparator status is invalid"
+            )
+        run_configuration_identity = _require_nonempty_identity(
+            predictor, "run_configuration_identity"
+        )
+        compatibility = _require_mapping(
+            predictor.get("compatibility"),
+            f"frozen predictor {index} compatibility",
+        )
+        expected_compatibility = {
+            "source_identity": source_identity,
+            "split_identity": split_identity,
+            "preprocessing_identity": preprocessing.content_identity,
+            "configuration_identity": run_configuration_identity,
+        }
+        if any(
+            compatibility.get(name) != value
+            for name, value in expected_compatibility.items()
+        ):
+            raise PredictionContractError(
+                f"frozen predictor {index} compatibility is inconsistent"
+            )
+        compatibility_identity = predictor.get("compatibility_identity")
+        if compatibility_identity != _content_identity(compatibility):
+            raise PredictionContractError(
+                f"frozen predictor {index} compatibility identity is stale"
+            )
+        content_identities = _require_mapping(
+            compatibility.get("content_identities"),
+            f"frozen predictor {index} content identities",
+        )
+        if set(content_identities) != {
+            "training_partition",
+            "validation_partition",
+        }:
+            raise PredictionContractError(
+                f"frozen predictor {index} partition bindings are incomplete"
+            )
+        binding = predictor.get("preprocessing_binding")
+        expected_binding = {
+            "source_identity": source_identity,
+            "split_identity": split_identity,
+            "preprocessing_identity": preprocessing.content_identity,
+            "feature_schema_identity": preprocessing.feature_schema_identity,
+            "unit_schema_identity": preprocessing.unit_schema_identity,
+            "branch_feature_order": list(_BRANCH_FEATURE_ORDER),
+        }
+        if binding != expected_binding:
+            raise PredictionContractError(
+                f"frozen predictor {index} preprocessing binding is incompatible"
+            )
+        artifacts = _require_mapping(
+            predictor.get("artifacts"), f"frozen predictor {index} artifacts"
+        )
+        if set(artifacts) != {
+            "checkpoint",
+            "validation_predictions",
+            "history",
+            "metadata",
+            "recovery_snapshot",
+            "run_history",
+        }:
+            raise PredictionContractError(
+                f"frozen predictor {index} retained artifacts are incomplete"
+            )
+        checkpoint_path = _bound_package_artifact(
+            package_path,
+            artifacts["checkpoint"],
+            label=f"frozen predictor {index} checkpoint",
+        )
+        for name, relative_path in artifacts.items():
+            _bound_package_artifact(
+                package_path,
+                relative_path,
+                label=f"frozen predictor {index} {name}",
+            )
+        predictors.append(
+            _FixturePredictor(
+                seed=seed,
+                checkpoint_identity=checkpoint_identity,
+                precision_identity=_require_nonempty_identity(
+                    compatibility, "precision_identity"
+                ),
+                backend_identity=_require_nonempty_identity(
+                    compatibility, "backend_identity"
+                ),
+                content_identity=_content_identity(content_identities),
+                compatibility_identity=str(compatibility_identity),
+                validation_comparator_status=str(comparator_status),
+                run_configuration_identity=run_configuration_identity,
+                checkpoint=_FrozenCheckpoint(checkpoint_path),
+            )
+        )
+    if len({item.checkpoint_identity for item in predictors}) != 5:
+        raise PredictionContractError(
+            "frozen checkpoint identities must be distinct"
+        )
+    return _FixturePackage(
+        canonical=bool(canonical),
+        evidence_status=str(evidence_status),
+        gate_status="passed",
+        test_partition_status=str(test_partition_status),
+        source_checksums=source_checksums,
+        source_identity=str(source_identity),
+        split_identity=split_identity,
+        run_configuration_identity=protocol_identity,
+        preprocessing=preprocessing,
+        predictors=tuple(predictors),
+    )
+
+
+def _parse_frozen_preprocessing(
+    value: object,
+    *,
+    source_checksums: _SourceChecksums,
+    source_identity: str,
+    split_identity: str,
+) -> _PreprocessingState:
+    preprocessing = _require_mapping(value, "frozen preprocessing")
+    expected_keys = {
+        "schema_version",
+        "runtime_feature_order",
+        "branch_feature_order",
+        "branch_feature_units",
+        "trunk_feature_order",
+        "trunk_feature_units",
+        "aeps_element_order",
+        "aeps_unit",
+        "aeps_transform",
+        "aeps_weighting",
+        "branch_mean",
+        "branch_population_std",
+        "trunk_bounds_mm",
+        "element_points_mm",
+        "normalized_trunk_coordinates",
+        "material",
+        "dtype_policy",
+        "feature_schema_identity",
+        "unit_schema_identity",
+        "content_identity",
+    }
+    feature_schema_identity = preprocessing.get("feature_schema_identity")
+    unit_schema_identity = preprocessing.get("unit_schema_identity")
+    if (
+        set(preprocessing) != expected_keys
+        or preprocessing.get("schema_version") != "baseline-preprocessing-v1"
+        or feature_schema_identity != _feature_schema_content_identity()
+        or unit_schema_identity != _unit_schema_content_identity()
+        or preprocessing.get("runtime_feature_order") != list(_RUNTIME_FEATURE_ORDER)
+        or preprocessing.get("branch_feature_order") != list(_BRANCH_FEATURE_ORDER)
+        or preprocessing.get("branch_feature_units") != list(_BRANCH_FEATURE_UNITS)
+        or preprocessing.get("trunk_feature_order") != list(_TRUNK_FEATURE_ORDER)
+        or preprocessing.get("trunk_feature_units") != list(_TRUNK_FEATURE_UNITS)
+        or preprocessing.get("aeps_element_order") != list(_AEPS_ELEMENT_ORDER)
+        or preprocessing.get("dtype_policy") != _DTYPE_POLICY
+        or preprocessing.get("aeps_unit") != "dimensionless"
+        or preprocessing.get("aeps_transform") != "none"
+        or preprocessing.get("aeps_weighting") != "none"
+    ):
+        raise PredictionContractError(
+            "frozen preprocessing schemas are incompatible"
+        )
+    preprocessing_without_identity = dict(preprocessing)
+    preprocessing_identity = preprocessing_without_identity.pop(
+        "content_identity", None
+    )
+    if preprocessing_identity != _preprocessing_content_identity(
+        source_checksums=source_checksums.as_dict(),
+        source_identity=source_identity,
+        split_identity=split_identity,
+        preprocessing=preprocessing_without_identity,
+    ):
+        raise PredictionContractError(
+            "frozen preprocessing content identity is stale"
+        )
+    branch_mean = _require_finite_numbers(
+        preprocessing.get("branch_mean"), count=5, label="frozen branch mean"
+    )
+    branch_std = _require_finite_numbers(
+        preprocessing.get("branch_population_std"),
+        count=5,
+        label="frozen branch population standard deviation",
+    )
+    if any(value <= 0.0 for value in branch_std):
+        raise PredictionContractError(
+            "frozen branch population standard deviations must be positive"
+        )
+    bounds = _require_mapping(
+        preprocessing.get("trunk_bounds_mm"), "frozen trunk bounds"
+    )
+    x_bounds = _require_bounds(bounds.get("x"), "x")
+    z_bounds = _require_bounds(bounds.get("z"), "z")
+    raw_points = preprocessing.get("element_points_mm")
+    raw_normalized = preprocessing.get("normalized_trunk_coordinates")
+    if (
+        not isinstance(raw_points, list)
+        or len(raw_points) != 48
+        or not isinstance(raw_normalized, list)
+        or len(raw_normalized) != 48
+    ):
+        raise PredictionContractError(
+            "frozen preprocessing must contain 48 element points and trunk coordinates"
+        )
+    points = tuple(
+        _require_element_point(point, index=index)
+        for index, point in enumerate(raw_points, start=1)
+    )
+    normalized = tuple(
+        _require_element_point(point, index=index)
+        for index, point in enumerate(raw_normalized, start=1)
+    )
+    expected_normalized = tuple(
+        (
+            _normalize_coordinate(point[0], x_bounds),
+            _normalize_coordinate(point[1], z_bounds),
+        )
+        for point in points
+    )
+    if (
+        (min(point[0] for point in points), max(point[0] for point in points))
+        != x_bounds
+        or (min(point[1] for point in points), max(point[1] for point in points))
+        != z_bounds
+        or any(
+            not math.isclose(actual, expected, rel_tol=0.0, abs_tol=1e-15)
+            for actual_point, expected_point in zip(
+                normalized, expected_normalized, strict=True
+            )
+            for actual, expected in zip(
+                actual_point, expected_point, strict=True
+            )
+        )
+    ):
+        raise PredictionContractError(
+            "frozen normalized trunk coordinates are incompatible"
+        )
+    material = _require_mapping(
+        preprocessing.get("material"), "frozen material metadata"
+    )
+    raw_knots = material.get("temperature_knots_c")
+    if not isinstance(raw_knots, list) or len(raw_knots) < 2:
+        raise PredictionContractError(
+            "frozen material metadata requires at least two temperature knots"
+        )
+    knots = _require_finite_numbers(
+        raw_knots, count=len(raw_knots), label="frozen material knots"
+    )
+    moduli = _require_finite_numbers(
+        material.get("youngs_modulus_pa"),
+        count=len(knots),
+        label="frozen material moduli",
+    )
+    ratios = _require_finite_numbers(
+        material.get("poissons_ratio"),
+        count=len(knots),
+        label="frozen material Poisson ratios",
+    )
+    if (
+        any(left >= right for left, right in zip(knots, knots[1:]))
+        or knots[0] > -40.0
+        or knots[-1] < 125.0
+        or any(value <= 0.0 for value in moduli)
+        or any(not -1.0 < value < 0.5 for value in ratios)
+        or material.get("interpolation") != "piecewise_linear"
+        or material.get("out_of_range") != "reject"
+    ):
+        raise PredictionContractError("frozen material metadata is incompatible")
+    return _PreprocessingState(
+        branch_mean=branch_mean,
+        branch_population_std=branch_std,
+        x_bounds_mm=x_bounds,
+        z_bounds_mm=z_bounds,
+        element_points_mm=points,
+        normalized_trunk_coordinates=normalized,
+        material=_MaterialMetadata(
+            temperature_knots_c=knots,
+            youngs_modulus_pa=moduli,
+            poissons_ratio=ratios,
+        ),
+        feature_schema_identity=str(feature_schema_identity),
+        unit_schema_identity=str(unit_schema_identity),
+        content_identity=str(preprocessing_identity),
+    )
+
+
+def _bound_package_artifact(
+    package_path: Path,
+    value: object,
+    *,
+    label: str,
+) -> Path:
+    if not isinstance(value, str) or not value:
+        raise PredictionContractError(f"{label} path is missing")
+    root = package_path.resolve()
+    artifact = (root / value).resolve()
+    if root not in artifact.parents or not artifact.is_file():
+        raise PredictionContractError(
+            f"{label} must be a file inside the frozen package"
+        )
+    return artifact
+
+
+def _predict_frozen_checkpoint(
+    predictor: _FixturePredictor,
+    branch: tuple[float, ...],
+    normalized_trunk_coordinates: tuple[tuple[float, float], ...],
+) -> list[float]:
+    model = _load_frozen_model(predictor, require_canonical=False)
+    with torch.no_grad():
+        values = model(
+            torch.tensor([branch], dtype=torch.float32),
+            torch.tensor(normalized_trunk_coordinates, dtype=torch.float32),
+        )[0]
+    return [float(value) for value in values]
+
+
+def _load_frozen_model(
+    predictor: _FixturePredictor,
+    *,
+    require_canonical: bool,
+) -> _DeepONet:
+    if not isinstance(predictor.checkpoint, _FrozenCheckpoint):
+        raise PredictionContractError(
+            "fixture predictors cannot authorize the real locked test partition"
+        )
+    try:
+        checkpoint = torch.load(
+            predictor.checkpoint.path,
+            map_location="cpu",
+            weights_only=True,
+        )
+    except (OSError, RuntimeError) as error:
+        raise PredictionContractError(
+            f"frozen checkpoint cannot be loaded: {error}"
+        ) from error
+    if not isinstance(checkpoint, Mapping) or (
+        checkpoint.get("schema_version") != "baseline-checkpoint-v1"
+        or checkpoint.get("seed") != predictor.seed
+        or checkpoint.get("checkpoint_identity") != predictor.checkpoint_identity
+        or checkpoint.get("run_configuration_identity")
+        != predictor.run_configuration_identity
+        or checkpoint.get("compatibility_identity")
+        != predictor.compatibility_identity
+    ):
+        raise PredictionContractError(
+            "frozen checkpoint identities do not match the selected predictor"
+        )
+    if require_canonical and (
+        checkpoint.get("canonical") is not True
+        or checkpoint.get("evidence_status") != "canonical_seed_run"
+    ):
+        raise PredictionContractError(
+            "locked-test authorization requires five canonical seed checkpoints"
+        )
+    model_state = checkpoint.get("model_state")
+    if (
+        not isinstance(model_state, Mapping)
+        or checkpoint.get("model_state_identity")
+        != _torch_state_identity(model_state)
+    ):
+        raise PredictionContractError("frozen checkpoint model state is stale")
+    model = _DeepONet()
+    try:
+        model.load_state_dict(model_state)
+    except RuntimeError as error:
+        raise PredictionContractError(
+            f"frozen checkpoint model state is incompatible: {error}"
+        ) from error
+    model.eval()
+    return model
 
 
 def _require_mapping(value: object, label: str) -> Mapping[str, Any]:

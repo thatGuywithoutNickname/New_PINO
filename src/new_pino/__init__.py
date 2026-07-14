@@ -9,6 +9,11 @@ from .lifecycle import (
     PredictionResult,
     PredictorSelector,
 )
+from .freezing import (
+    FreezeContractError,
+    FreezeResult,
+    SeedComparatorEvidence,
+)
 from .preparation import (
     PreparedDataArtifact,
     PreparedPartition,
@@ -38,6 +43,8 @@ __all__ = [
     "CpuSmokeTrainingResult",
     "EvaluationContractError",
     "EvaluationReport",
+    "FreezeContractError",
+    "FreezeResult",
     "MeanAndSampleStandardDeviation",
     "OperatingCondition",
     "PredictionContractError",
@@ -46,6 +53,7 @@ __all__ = [
     "PredictionResult",
     "PredictorSelector",
     "SeedMetricReport",
+    "SeedComparatorEvidence",
     "SeedTrainingResult",
     "PreparedDataArtifact",
     "PreparedPartition",

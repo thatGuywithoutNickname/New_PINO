@@ -1,0 +1,474 @@
+from __future__ import annotations
+
+from collections.abc import Iterator, Mapping
+from dataclasses import replace
+from hashlib import sha256
+import json
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from new_pino import (
+    BaselineLifecycle,
+    FreezeContractError,
+    OperatingCondition,
+    PredictionContractError,
+    PredictionRequest,
+    PredictorSelector,
+    SeedTrainingResult,
+)
+from new_pino.preparation import PreparedDataArtifact, PreparedPartition
+from test_source_preflight import synthetic_repository
+
+
+EXPECTED_ARCHITECTURE = {
+    "kind": "dot_product_deeponet",
+    "branch_widths": [5, 32, 64, 32, 16],
+    "trunk_widths": [2, 32, 64, 32, 16],
+    "hidden_activation": "tanh",
+    "latent_activation": "linear",
+    "fusion": "dot_product_plus_scalar_bias",
+    "output_repair": "none",
+    "trainable_parameter_count": 9729,
+}
+
+
+def _identity(payload: object) -> str:
+    return sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _comparator_rmse(prepared: PreparedDataArtifact) -> float:
+    training_mean = np.mean(
+        prepared.partitions["training"].raw_aeps_fields,
+        axis=0,
+        dtype=np.float64,
+    )
+    validation_truth = prepared.partitions["validation"].raw_aeps_fields.astype(
+        np.float64
+    )
+    return float(np.sqrt(np.mean((validation_truth - training_mean) ** 2)))
+
+
+def _write_json(path: Path, payload: dict[str, object]) -> None:
+    path.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+
+
+def _fake_seed_run(
+    root: Path,
+    prepared: PreparedDataArtifact,
+    *,
+    seed: int,
+    rmse_ratio: float,
+    protocol_marker: str = "shared-protocol",
+    finite: bool = True,
+) -> SeedTrainingResult:
+    run_directory = root / f"seed-{seed}"
+    run_directory.mkdir(parents=True)
+    checkpoint_identity = f"checkpoint-{seed}"
+    run_configuration_identity = f"configuration-{seed}"
+    comparator_rmse = _comparator_rmse(prepared)
+    truth = prepared.partitions["validation"].raw_aeps_fields.astype(np.float64)
+    predictions = truth + comparator_rmse * rmse_ratio
+    if not finite:
+        predictions[0, 0] = np.nan
+
+    checkpoint_path = run_directory / "checkpoint.pt"
+    predictions_path = run_directory / "validation_predictions.npy"
+    history_path = run_directory / "history.json"
+    metadata_path = run_directory / "metadata.json"
+    recovery_path = run_directory / "recovery.pt"
+    run_history_path = run_directory / "run_history.jsonl"
+    checkpoint_path.write_bytes(b"synthetic checkpoint")
+    np.save(predictions_path, predictions)
+    recovery_path.write_bytes(b"synthetic recovery")
+    run_history_path.write_text(
+        json.dumps({"event": "run_started"})
+        + "\n"
+        + json.dumps({"event": "run_completed", "completed_epoch": 1})
+        + "\n",
+        encoding="utf-8",
+    )
+
+    compatibility = {
+        "source_identity": prepared.preprocessing.source_identity,
+        "split_identity": prepared.preprocessing.split_identity,
+        "preprocessing_identity": prepared.preprocessing.content_identity,
+        "configuration_identity": run_configuration_identity,
+        "precision_identity": "float32-training-float64-validation",
+        "backend_identity": "cpu-smoke-backend",
+        "software_identity": "synthetic-software",
+        "content_identities": {
+            "training_partition": prepared.partitions["training"].content_identity,
+            "validation_partition": prepared.partitions["validation"].content_identity,
+        },
+    }
+    history: dict[str, object] = {
+        "schema_version": "baseline-training-history-v1",
+        "seed": seed,
+        "evidence_status": "noncanonical_cpu_smoke",
+        "run_configuration_identity": run_configuration_identity,
+        "completed_epochs": 1,
+        "stopping_reason": "smoke_epoch_ceiling",
+        "epochs": [{"epoch": 1}],
+        "compatibility": compatibility,
+        "compatibility_identity": _identity(compatibility),
+    }
+    history["content_identity"] = _identity(history)
+    _write_json(history_path, history)
+
+    validation_mse = float((comparator_rmse * rmse_ratio) ** 2)
+    metadata: dict[str, object] = {
+        "schema_version": "baseline-training-run-v1",
+        "canonical": False,
+        "evidence_status": "noncanonical_cpu_smoke",
+        "seed": seed,
+        "architecture": EXPECTED_ARCHITECTURE,
+        "initialization": {"policy": protocol_marker},
+        "loss": {"kind": "equally_weighted_raw_aeps_mse"},
+        "batching": {"item": "complete_48_point_simulation_case"},
+        "optimizer": {"kind": "Adam"},
+        "regularization": {"weight_decay": 0.0},
+        "precision": {"validation": "float64"},
+        "canonical_configuration": {"seeds": [0, 1, 2, 3, 4]},
+        "smoke_override": {"backend": "cpu", "max_epochs": 1},
+        "environment": {"device_identifier": "cpu", "protocol": protocol_marker},
+        "configuration_identity": run_configuration_identity,
+        "compatibility": compatibility,
+        "compatibility_identity": _identity(compatibility),
+        "source_checksums": dict(prepared.source_checksums),
+        "identities": {
+            "source": prepared.preprocessing.source_identity,
+            "split": prepared.preprocessing.split_identity,
+            "preprocessing": prepared.preprocessing.content_identity,
+            "feature_schema": prepared.preprocessing.feature_schema_identity,
+            "unit_schema": prepared.preprocessing.unit_schema_identity,
+            "run_configuration": run_configuration_identity,
+        },
+        "selected_checkpoint": {
+            "identity": checkpoint_identity,
+            "epoch": 1,
+            "validation_mse": validation_mse,
+        },
+        "validation_predictions": {
+            "shape": [51, 48],
+            "dtype": "float64",
+            "content_identity": sha256(predictions.tobytes()).hexdigest(),
+        },
+        "test_partition_status": "locked_not_accessed",
+    }
+    if finite:
+        metadata["content_identity"] = _identity(metadata)
+        _write_json(metadata_path, metadata)
+    else:
+        # JSON cannot encode non-finite evidence; the saved NumPy artifact is the
+        # first invalid item the public freeze boundary must reject.
+        metadata["validation_predictions"] = {
+            "shape": [51, 48],
+            "dtype": "float64",
+            "content_identity": sha256(predictions.tobytes()).hexdigest(),
+        }
+        metadata["content_identity"] = _identity(metadata)
+        _write_json(metadata_path, metadata)
+
+    return SeedTrainingResult(
+        seed=seed,
+        evidence_status="noncanonical_cpu_smoke",
+        test_partition_status="locked_not_accessed",
+        completed_epochs=1,
+        best_epoch=1,
+        best_validation_mse=validation_mse,
+        checkpoint_identity=checkpoint_identity,
+        run_configuration_identity=run_configuration_identity,
+        checkpoint_path=checkpoint_path,
+        validation_predictions_path=predictions_path,
+        history_path=history_path,
+        metadata_path=metadata_path,
+        recovery_snapshot_path=recovery_path,
+        run_history_path=run_history_path,
+    )
+
+
+def _runs(
+    root: Path,
+    prepared: PreparedDataArtifact,
+    ratios: list[float],
+) -> tuple[SeedTrainingResult, ...]:
+    return tuple(
+        _fake_seed_run(root, prepared, seed=seed, rmse_ratio=ratio)
+        for seed, ratio in enumerate(ratios)
+    )
+
+
+class _LockedTestPartitions(Mapping[str, PreparedPartition]):
+    def __init__(self, partitions: Mapping[str, PreparedPartition]) -> None:
+        self._partitions = partitions
+
+    def __getitem__(self, name: str) -> PreparedPartition:
+        if name == "test":
+            raise AssertionError("the locked test partition was accessed")
+        return self._partitions[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._partitions)
+
+    def __len__(self) -> int:
+        return len(self._partitions)
+
+
+def test_full_validation_gate_pass_freezes_five_disclosed_predictors(
+    tmp_path: Path,
+) -> None:
+    repository = synthetic_repository(tmp_path / "repository")
+    prepared = BaselineLifecycle.prepare(repository)
+    locked = replace(prepared, partitions=_LockedTestPartitions(prepared.partitions))
+    package_directory = tmp_path / "frozen"
+
+    result = BaselineLifecycle.freeze(
+        locked,
+        _runs(tmp_path / "runs", prepared, [0.5] * 5),
+        repository_root=repository,
+        package_directory=package_directory,
+    )
+
+    assert result.gate_passed is True
+    assert result.canonical is False
+    assert result.evidence_status == "noncanonical_frozen_package"
+    assert result.test_partition_status == "locked_ineligible_noncanonical"
+    assert result.comparator_global_rmse == pytest.approx(_comparator_rmse(prepared))
+    assert result.mean_seed_global_rmse == pytest.approx(
+        result.comparator_global_rmse * 0.5
+    )
+    assert result.passing_seed_count == 5
+    assert [seed.comparator_status for seed in result.seed_evidence] == ["passed"] * 5
+    assert result.package_path == package_directory
+
+    package = json.loads((package_directory / "package.json").read_text(encoding="utf-8"))
+    assert package["schema_version"] == "baseline-frozen-package-v1"
+    assert package["canonical"] is False
+    assert package["gate_evidence"]["gate_passed"] is True
+    assert package["source_preflight"]["status"] == "passed"
+    assert package["source_preflight"]["source_checksums"] == dict(
+        prepared.source_checksums
+    )
+    assert package["frozen_contract"] == {
+        "source_identity": prepared.preprocessing.source_identity,
+        "split_identity": prepared.preprocessing.split_identity,
+        "preprocessing_identity": prepared.preprocessing.content_identity,
+        "feature_schema_identity": prepared.preprocessing.feature_schema_identity,
+        "unit_schema_identity": prepared.preprocessing.unit_schema_identity,
+        "architecture": EXPECTED_ARCHITECTURE,
+        "training_protocol_identity": result.protocol_identity,
+        "selected_checkpoint_identities": [
+            f"checkpoint-{seed}" for seed in range(5)
+        ],
+    }
+    assert [item["seed"] for item in package["predictors"]] == [0, 1, 2, 3, 4]
+    assert all(
+        item["validation_comparator_status"] == "passed"
+        for item in package["predictors"]
+    )
+    assert "default_predictor" not in package
+    assert "best_seed" not in package
+    assert "ensemble" not in package
+    assert len(package["validation_report"]["case_order"]) == 51
+    assert len(package["validation_report"]["seed_reports"]) == 5
+    assert (package_directory / "runtime_sources" / "co_ind.csv").is_file()
+    assert (
+        package_directory / "runtime_sources" / "material_properties.md"
+    ).is_file()
+    for predictor in package["predictors"]:
+        for path in predictor["artifacts"].values():
+            assert (package_directory / path).is_file()
+
+
+def test_one_nonpassing_seed_is_retained_when_majority_and_mean_pass(
+    tmp_path: Path,
+) -> None:
+    repository = synthetic_repository(tmp_path / "repository")
+    prepared = BaselineLifecycle.prepare(repository)
+
+    result = BaselineLifecycle.freeze(
+        prepared,
+        _runs(tmp_path / "runs", prepared, [0.5, 0.6, 0.7, 0.8, 1.1]),
+        repository_root=repository,
+        package_directory=tmp_path / "frozen",
+    )
+
+    assert result.gate_passed is True
+    assert result.passing_seed_count == 4
+    assert [seed.comparator_status for seed in result.seed_evidence] == [
+        "passed",
+        "passed",
+        "passed",
+        "passed",
+        "not_passed",
+    ]
+    package = json.loads((result.package_path / "package.json").read_text(encoding="utf-8"))
+    assert len(package["predictors"]) == 5
+    assert package["predictors"][4]["validation_comparator_status"] == "not_passed"
+
+
+@pytest.mark.parametrize(
+    ("ratios", "reason"),
+    [
+        ([0.5, 0.6, 0.7, 1.1, 1.2], "insufficient_seed_majority"),
+        ([0.9, 0.9, 0.9, 0.9, 2.0], "five_seed_mean_not_better"),
+    ],
+)
+def test_nonpassing_gate_keeps_test_locked_and_requires_all_five_to_rerun(
+    tmp_path: Path,
+    ratios: list[float],
+    reason: str,
+) -> None:
+    repository = synthetic_repository(tmp_path / "repository")
+    prepared = BaselineLifecycle.prepare(repository)
+    locked = replace(prepared, partitions=_LockedTestPartitions(prepared.partitions))
+    output = tmp_path / "failed-freeze"
+
+    result = BaselineLifecycle.freeze(
+        locked,
+        _runs(tmp_path / "runs", prepared, ratios),
+        repository_root=repository,
+        package_directory=output,
+    )
+
+    assert result.gate_passed is False
+    assert result.failure_reasons == (reason,)
+    assert result.test_partition_status == "locked_gate_failed"
+    assert result.package_path is None
+    assert result.revision_requirement == (
+        "rerun_all_five_seeds_under_one_revised_common_protocol"
+    )
+    assert list(output.iterdir()) == [result.gate_artifact_path]
+    assert not list(output.rglob("*test*"))
+
+
+def test_incomplete_seed_set_is_rejected_without_test_artifacts(tmp_path: Path) -> None:
+    repository = synthetic_repository(tmp_path / "repository")
+    prepared = BaselineLifecycle.prepare(repository)
+    output = tmp_path / "invalid-freeze"
+
+    with pytest.raises(FreezeContractError, match="exactly seeds 0 through 4") as raised:
+        BaselineLifecycle.freeze(
+            prepared,
+            _runs(tmp_path / "runs", prepared, [0.5] * 4),
+            repository_root=repository,
+            package_directory=output,
+        )
+
+    assert raised.value.gate_artifact_path == output / "freeze_gate.json"
+    assert list(output.iterdir()) == [raised.value.gate_artifact_path]
+
+
+def test_incompatible_seed_identities_are_rejected(tmp_path: Path) -> None:
+    repository = synthetic_repository(tmp_path / "repository")
+    prepared = BaselineLifecycle.prepare(repository)
+    runs = list(_runs(tmp_path / "runs", prepared, [0.5] * 5))
+    incompatible = json.loads(runs[4].metadata_path.read_text(encoding="utf-8"))
+    incompatible["environment"]["protocol"] = "different-protocol"
+    incompatible["content_identity"] = _identity(
+        {key: value for key, value in incompatible.items() if key != "content_identity"}
+    )
+    _write_json(runs[4].metadata_path, incompatible)
+
+    with pytest.raises(FreezeContractError, match="common training protocol"):
+        BaselineLifecycle.freeze(
+            prepared,
+            runs,
+            repository_root=repository,
+            package_directory=tmp_path / "invalid-freeze",
+        )
+
+
+def test_non_finite_validation_evidence_is_rejected(tmp_path: Path) -> None:
+    repository = synthetic_repository(tmp_path / "repository")
+    prepared = BaselineLifecycle.prepare(repository)
+    runs = list(_runs(tmp_path / "runs", prepared, [0.5] * 4))
+    runs.append(
+        _fake_seed_run(
+            tmp_path / "runs",
+            prepared,
+            seed=4,
+            rmse_ratio=0.5,
+            finite=False,
+        )
+    )
+
+    with pytest.raises(FreezeContractError, match="finite validation predictions"):
+        BaselineLifecycle.freeze(
+            prepared,
+            runs,
+            repository_root=repository,
+            package_directory=tmp_path / "invalid-freeze",
+        )
+
+
+def test_frozen_cpu_smoke_package_uses_explicit_prediction_contract_and_stays_locked(
+    tmp_path: Path,
+) -> None:
+    repository = synthetic_repository(tmp_path / "repository")
+    prepared = BaselineLifecycle.prepare(repository)
+    comparator_rmse = _comparator_rmse(prepared)
+    runs: list[SeedTrainingResult] = []
+    for seed in range(5):
+        run = BaselineLifecycle.train(
+            prepared,
+            seed=seed,
+            artifact_directory=tmp_path / "training" / f"seed-{seed}",
+            smoke_max_epochs=1,
+        )
+        predictions = (
+            prepared.partitions["validation"].raw_aeps_fields.astype(np.float64)
+            + comparator_rmse * 0.5
+        )
+        np.save(run.validation_predictions_path, predictions)
+        metadata = json.loads(run.metadata_path.read_text(encoding="utf-8"))
+        metadata["selected_checkpoint"]["validation_mse"] = (comparator_rmse * 0.5) ** 2
+        metadata["validation_predictions"] = {
+            "shape": [51, 48],
+            "dtype": "float64",
+            "content_identity": sha256(predictions.tobytes()).hexdigest(),
+        }
+        metadata_without_identity = {
+            key: value for key, value in metadata.items() if key != "content_identity"
+        }
+        metadata["content_identity"] = _identity(metadata_without_identity)
+        _write_json(run.metadata_path, metadata)
+        runs.append(replace(run, best_validation_mse=(comparator_rmse * 0.5) ** 2))
+
+    package_path = tmp_path / "frozen"
+    freeze = BaselineLifecycle.freeze(
+        prepared,
+        runs,
+        repository_root=repository,
+        package_directory=package_path,
+    )
+    lifecycle = BaselineLifecycle.from_package(package_path)
+    prediction = lifecycle.predict(
+        PredictionRequest(
+            OperatingCondition(22.5, 0.55, 23.5),
+            PredictorSelector(seed=4),
+        )
+    )
+
+    assert freeze.canonical is False
+    assert len(prediction.aeps_field) == 48
+    assert prediction.provenance.seed == 4
+    assert prediction.provenance.checkpoint_identity == runs[4].checkpoint_identity
+    assert prediction.provenance.validation_comparator_status == "passed"
+    with pytest.raises(
+        PredictionContractError,
+        match="only a passing canonical frozen package can authorize",
+    ):
+        lifecycle.authorize_locked_test_partition(
+            replace(prepared, partitions=_LockedTestPartitions(prepared.partitions))
+        )
