@@ -521,6 +521,116 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _parse_package_source_binding(
+    package: Mapping[str, Any],
+    *,
+    package_kind: str,
+) -> tuple[_SourceChecksums, str]:
+    checksums = _require_mapping(
+        package.get("source_checksums"), f"{package_kind} source checksums"
+    )
+    expected_names = {
+        "training_data",
+        "element_points",
+        "material_properties",
+    }
+    if set(checksums) != expected_names:
+        raise PredictionContractError(
+            f"{package_kind} source checksums must bind training_data, "
+            "element_points, and material_properties"
+        )
+    for name, checksum in checksums.items():
+        if not _is_sha256(checksum):
+            raise PredictionContractError(
+                f"{package_kind} source checksum {name!r} must be 64 lowercase "
+                "hex characters"
+            )
+    source_checksums = _SourceChecksums(
+        training_data=str(checksums["training_data"]),
+        element_points=str(checksums["element_points"]),
+        material_properties=str(checksums["material_properties"]),
+    )
+    source_identity = package.get("source_identity")
+    if source_identity != _source_content_identity(source_checksums.as_dict()):
+        raise PredictionContractError(
+            f"{package_kind} source identity does not match its checksums"
+        )
+    return source_checksums, str(source_identity)
+
+
+def _parse_predictor_binding(
+    predictor: Mapping[str, Any],
+    *,
+    label: str,
+    source_identity: str,
+    split_identity: str,
+    preprocessing: _PreprocessingState,
+    run_configuration_identity: str,
+) -> tuple[str, str, str, str]:
+    compatibility = _require_mapping(
+        predictor.get("compatibility"), f"{label} compatibility"
+    )
+    expected_compatibility = {
+        "source_identity": source_identity,
+        "split_identity": split_identity,
+        "preprocessing_identity": preprocessing.content_identity,
+        "configuration_identity": run_configuration_identity,
+    }
+    if any(
+        compatibility.get(name) != value
+        for name, value in expected_compatibility.items()
+    ):
+        raise PredictionContractError(
+            f"{label} compatibility is inconsistent with the package identities"
+        )
+    precision_identity = _require_nonempty_identity(
+        compatibility, "precision_identity"
+    )
+    backend_identity = _require_nonempty_identity(
+        compatibility, "backend_identity"
+    )
+    content_identities = _require_mapping(
+        compatibility.get("content_identities"), f"{label} content identities"
+    )
+    if set(content_identities) != {
+        "training_partition",
+        "validation_partition",
+    } or any(
+        not isinstance(identity, str) or not identity
+        for identity in content_identities.values()
+    ):
+        raise PredictionContractError(
+            f"{label} content identities must bind the training and validation "
+            "partitions"
+        )
+    compatibility_identity = _require_nonempty_identity(
+        predictor, "compatibility_identity"
+    )
+    if compatibility_identity != _content_identity(compatibility):
+        raise PredictionContractError(
+            f"{label} compatibility identity is stale"
+        )
+    expected_binding = {
+        "source_identity": source_identity,
+        "split_identity": split_identity,
+        "preprocessing_identity": preprocessing.content_identity,
+        "feature_schema_identity": preprocessing.feature_schema_identity,
+        "unit_schema_identity": preprocessing.unit_schema_identity,
+        "branch_feature_order": list(_BRANCH_FEATURE_ORDER),
+    }
+    if predictor.get("preprocessing_binding") != expected_binding:
+        raise PredictionContractError(
+            f"{label} preprocessing binding is incompatible with the package "
+            "identities or feature order"
+        )
+    return (
+        precision_identity,
+        backend_identity,
+        _content_identity(content_identities),
+        compatibility_identity,
+    )
+
+
 def _parse_fixture_package(metadata: object) -> _FixturePackage:
     package = _require_mapping(metadata, "fixture package")
     if package.get("schema_version") != "fixture-prediction-package-v1":
@@ -535,36 +645,10 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
             "evidence_status 'noncanonical_fixture'"
         )
 
-    checksums = _require_mapping(
-        package.get("source_checksums"), "fixture source_checksums"
+    source_checksums, source_identity = _parse_package_source_binding(
+        package,
+        package_kind="fixture",
     )
-    expected_checksum_names = {
-        "training_data",
-        "element_points",
-        "material_properties",
-    }
-    if set(checksums) != expected_checksum_names:
-        raise PredictionContractError(
-            "fixture source_checksums must bind training_data, element_points, "
-            "and material_properties"
-        )
-    for name, checksum in checksums.items():
-        if not _is_sha256(checksum):
-            raise PredictionContractError(
-                f"fixture source checksum {name!r} must be 64 lowercase hex characters"
-            )
-
-    source_checksums = _SourceChecksums(
-        training_data=str(checksums["training_data"]),
-        element_points=str(checksums["element_points"]),
-        material_properties=str(checksums["material_properties"]),
-    )
-    source_identity = package.get("source_identity")
-    expected_source_identity = _source_content_identity(source_checksums.as_dict())
-    if source_identity != expected_source_identity:
-        raise PredictionContractError(
-            "fixture source_identity must match the bound source checksums"
-        )
 
     split_identity = _require_nonempty_identity(package, "split_identity")
     run_configuration_identity = _require_nonempty_identity(
@@ -583,13 +667,9 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
         package.get("preprocessing"),
         package_kind="fixture",
         source_checksums=source_checksums,
-        source_identity=str(source_identity),
+        source_identity=source_identity,
         split_identity=split_identity,
     )
-    preprocessing_identity = parsed_preprocessing.content_identity
-    feature_schema_identity = parsed_preprocessing.feature_schema_identity
-    unit_schema_identity = parsed_preprocessing.unit_schema_identity
-
     predictors = package.get("predictors")
     if not isinstance(predictors, list) or not predictors:
         raise PredictionContractError(
@@ -618,55 +698,19 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
             )
         seeds.add(seed)
         checkpoints.add(checkpoint)
-        compatibility = _require_mapping(
-            predictor.get("compatibility"),
-            f"fixture predictor {predictor_number} compatibility",
-        )
-        expected_compatibility_bindings = {
-            "source_identity": source_identity,
-            "split_identity": split_identity,
-            "preprocessing_identity": preprocessing_identity,
-            "configuration_identity": run_configuration_identity,
-        }
-        for name, expected in expected_compatibility_bindings.items():
-            if compatibility.get(name) != expected:
-                raise PredictionContractError(
-                    f"fixture predictor {predictor_number} compatibility {name} "
-                    "does not match the package"
-                )
-        precision_identity = _require_nonempty_identity(
-            compatibility,
-            "precision_identity",
-        )
-        backend_identity = _require_nonempty_identity(
-            compatibility,
-            "backend_identity",
-        )
-        content_identities = _require_mapping(
-            compatibility.get("content_identities"),
-            f"fixture predictor {predictor_number} content identities",
-        )
-        if set(content_identities) != {
-            "training_partition",
-            "validation_partition",
-        } or any(
-            not isinstance(identity, str) or not identity
-            for identity in content_identities.values()
-        ):
-            raise PredictionContractError(
-                f"fixture predictor {predictor_number} content identities must "
-                "bind the training and validation partitions"
-            )
-        content_identity = _content_identity(content_identities)
-        compatibility_identity = _require_nonempty_identity(
+        (
+            precision_identity,
+            backend_identity,
+            content_identity,
+            compatibility_identity,
+        ) = _parse_predictor_binding(
             predictor,
-            "compatibility_identity",
+            label=f"fixture predictor {predictor_number}",
+            source_identity=source_identity,
+            split_identity=split_identity,
+            preprocessing=parsed_preprocessing,
+            run_configuration_identity=run_configuration_identity,
         )
-        if compatibility_identity != _content_identity(compatibility):
-            raise PredictionContractError(
-                f"fixture predictor {predictor_number} compatibility identity is "
-                "stale"
-            )
         comparator_status = predictor.get("validation_comparator_status")
         if comparator_status not in {
             "passed",
@@ -675,19 +719,6 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
             raise PredictionContractError(
                 f"fixture predictor {predictor_number} validation comparator status "
                 "must be 'passed' or 'not_passed'"
-            )
-        expected_binding = {
-            "source_identity": source_identity,
-            "split_identity": split_identity,
-            "preprocessing_identity": preprocessing_identity,
-            "feature_schema_identity": feature_schema_identity,
-            "unit_schema_identity": unit_schema_identity,
-            "branch_feature_order": list(_BRANCH_FEATURE_ORDER),
-        }
-        if predictor.get("preprocessing_binding") != expected_binding:
-            raise PredictionContractError(
-                f"fixture predictor {predictor_number} preprocessing binding is "
-                "incompatible with the package identities or feature order"
             )
         checkpoint_state = _require_mapping(
             predictor.get("fixture_checkpoint"),
@@ -737,7 +768,7 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
         gate_status="fixture_only",
         test_partition_status="locked_ineligible_noncanonical",
         source_checksums=source_checksums,
-        source_identity=str(source_identity),
+        source_identity=source_identity,
         split_identity=split_identity,
         run_configuration_identity=run_configuration_identity,
         preprocessing=parsed_preprocessing,
@@ -787,27 +818,10 @@ def _parse_frozen_package(
     ):
         raise PredictionContractError("frozen package gate evidence is incompatible")
 
-    checksums = _require_mapping(
-        package.get("source_checksums"), "frozen source checksums"
+    source_checksums, source_identity = _parse_package_source_binding(
+        package,
+        package_kind="frozen",
     )
-    if set(checksums) != {
-        "training_data",
-        "element_points",
-        "material_properties",
-    } or any(not _is_sha256(value) for value in checksums.values()):
-        raise PredictionContractError(
-            "frozen source checksums must bind all three canonical sources"
-        )
-    source_checksums = _SourceChecksums(
-        training_data=str(checksums["training_data"]),
-        element_points=str(checksums["element_points"]),
-        material_properties=str(checksums["material_properties"]),
-    )
-    source_identity = package.get("source_identity")
-    if source_identity != _source_content_identity(source_checksums.as_dict()):
-        raise PredictionContractError(
-            "frozen source identity does not match its checksums"
-        )
     split_identity = _require_nonempty_identity(package, "split_identity")
     if package.get("architecture") != dict(_EXPECTED_ARCHITECTURE):
         raise PredictionContractError("frozen architecture is incompatible")
@@ -815,7 +829,7 @@ def _parse_frozen_package(
         package.get("preprocessing"),
         package_kind="frozen",
         source_checksums=source_checksums,
-        source_identity=str(source_identity),
+        source_identity=source_identity,
         split_identity=split_identity,
     )
     protocol = _require_mapping(
@@ -851,52 +865,19 @@ def _parse_frozen_package(
         run_configuration_identity = _require_nonempty_identity(
             predictor, "run_configuration_identity"
         )
-        compatibility = _require_mapping(
-            predictor.get("compatibility"),
-            f"frozen predictor {index} compatibility",
+        (
+            precision_identity,
+            backend_identity,
+            content_identity,
+            compatibility_identity,
+        ) = _parse_predictor_binding(
+            predictor,
+            label=f"frozen predictor {index}",
+            source_identity=source_identity,
+            split_identity=split_identity,
+            preprocessing=preprocessing,
+            run_configuration_identity=run_configuration_identity,
         )
-        expected_compatibility = {
-            "source_identity": source_identity,
-            "split_identity": split_identity,
-            "preprocessing_identity": preprocessing.content_identity,
-            "configuration_identity": run_configuration_identity,
-        }
-        if any(
-            compatibility.get(name) != value
-            for name, value in expected_compatibility.items()
-        ):
-            raise PredictionContractError(
-                f"frozen predictor {index} compatibility is inconsistent"
-            )
-        compatibility_identity = predictor.get("compatibility_identity")
-        if compatibility_identity != _content_identity(compatibility):
-            raise PredictionContractError(
-                f"frozen predictor {index} compatibility identity is stale"
-            )
-        content_identities = _require_mapping(
-            compatibility.get("content_identities"),
-            f"frozen predictor {index} content identities",
-        )
-        if set(content_identities) != {
-            "training_partition",
-            "validation_partition",
-        }:
-            raise PredictionContractError(
-                f"frozen predictor {index} partition bindings are incomplete"
-            )
-        binding = predictor.get("preprocessing_binding")
-        expected_binding = {
-            "source_identity": source_identity,
-            "split_identity": split_identity,
-            "preprocessing_identity": preprocessing.content_identity,
-            "feature_schema_identity": preprocessing.feature_schema_identity,
-            "unit_schema_identity": preprocessing.unit_schema_identity,
-            "branch_feature_order": list(_BRANCH_FEATURE_ORDER),
-        }
-        if binding != expected_binding:
-            raise PredictionContractError(
-                f"frozen predictor {index} preprocessing binding is incompatible"
-            )
         artifacts = _require_mapping(
             predictor.get("artifacts"), f"frozen predictor {index} artifacts"
         )
@@ -926,14 +907,10 @@ def _parse_frozen_package(
             _FixturePredictor(
                 seed=seed,
                 checkpoint_identity=checkpoint_identity,
-                precision_identity=_require_nonempty_identity(
-                    compatibility, "precision_identity"
-                ),
-                backend_identity=_require_nonempty_identity(
-                    compatibility, "backend_identity"
-                ),
-                content_identity=_content_identity(content_identities),
-                compatibility_identity=str(compatibility_identity),
+                precision_identity=precision_identity,
+                backend_identity=backend_identity,
+                content_identity=content_identity,
+                compatibility_identity=compatibility_identity,
                 validation_comparator_status=str(comparator_status),
                 run_configuration_identity=run_configuration_identity,
                 checkpoint=_FrozenCheckpoint(checkpoint_path),
@@ -949,7 +926,7 @@ def _parse_frozen_package(
         gate_status="passed",
         test_partition_status=str(test_partition_status),
         source_checksums=source_checksums,
-        source_identity=str(source_identity),
+        source_identity=source_identity,
         split_identity=split_identity,
         run_configuration_identity=protocol_identity,
         preprocessing=preprocessing,
@@ -1001,7 +978,6 @@ def _parse_package_preprocessing(
         or unit_schema_identity != _unit_schema_content_identity()
         or preprocessing.get("runtime_feature_order") != list(_RUNTIME_FEATURE_ORDER)
         or preprocessing.get("branch_feature_order") != list(_BRANCH_FEATURE_ORDER)
-        or preprocessing.get("branch_feature_units") != list(_BRANCH_FEATURE_UNITS)
         or preprocessing.get("trunk_feature_order") != list(_TRUNK_FEATURE_ORDER)
         or preprocessing.get("trunk_feature_units") != list(_TRUNK_FEATURE_UNITS)
         or preprocessing.get("aeps_element_order") != list(_AEPS_ELEMENT_ORDER)
@@ -1283,7 +1259,7 @@ def _require_bounds(
     value: object,
     component: str,
     *,
-    package_kind: str = "fixture",
+    package_kind: str,
 ) -> tuple[float, float]:
     lower, upper = _require_finite_numbers(
         value,

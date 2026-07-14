@@ -24,6 +24,7 @@ from .reporting import (
     _seed_metric_report,
 )
 from .training import (
+    _DeepONet,
     SeedTrainingResult,
     _CANONICAL_SEEDS,
     _EXPECTED_ARCHITECTURE,
@@ -505,6 +506,13 @@ def _validate_seed_run(
         != _torch_state_identity(optimizer_state)
     ):
         raise ValueError(f"seed {run.seed} checkpoint content identity is stale")
+    model = _DeepONet()
+    try:
+        model.load_state_dict(model_state)
+    except RuntimeError as error:
+        raise ValueError(
+            f"seed {run.seed} checkpoint model state is incompatible"
+        ) from error
 
     try:
         predictions = np.load(run.validation_predictions_path, allow_pickle=False)
