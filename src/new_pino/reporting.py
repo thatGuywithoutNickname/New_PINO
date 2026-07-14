@@ -7,7 +7,7 @@ from hashlib import sha256
 import json
 import math
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 
 class EvaluationContractError(ValueError):
@@ -28,6 +28,7 @@ class CaseMetricReport:
 class SeedMetricReport:
     seed: int
     checkpoint_identity: str
+    validation_comparator_status: str
     precision_identity: str
     backend_identity: str
     content_identity: str
@@ -95,15 +96,28 @@ def _evaluate_fixture(
     split_identity: str,
     preprocessing_identity: str,
     run_configuration_identity: str,
-    predictor_identities: tuple[tuple[int, str, str, str, str, str], ...],
+    predictor_identities: tuple[
+        tuple[int, str, str, str, str, str, str], ...
+    ],
     element_points_mm: tuple[tuple[float, float], ...],
     artifact_path: str | Path | None,
+    predict_fields: Callable[
+        [int, str, tuple[tuple[float, ...], ...]],
+        tuple[tuple[float, ...], ...],
+    ]
+    | None = None,
 ) -> EvaluationReport:
     fixture = _load_fixture(fixture_path)
-    if fixture.get("schema_version") != "aeps-evaluation-fixture-v1":
+    schema_version = fixture.get("schema_version")
+    generated_partition = (
+        schema_version == "aeps-evaluation-partition-fixture-v1"
+    )
+    if schema_version not in {
+        "aeps-evaluation-fixture-v1",
+        "aeps-evaluation-partition-fixture-v1",
+    }:
         raise EvaluationContractError(
-            "evaluation fixture schema_version must be "
-            "'aeps-evaluation-fixture-v1'"
+            "evaluation fixture schema_version is unsupported"
         )
     if fixture.get("canonical") is not False:
         raise EvaluationContractError(
@@ -158,6 +172,7 @@ def _evaluate_fixture(
         )
     case_order: list[str] = []
     truths: list[tuple[float, ...]] = []
+    branch_inputs: list[tuple[float, ...]] = []
     for case_number, raw_case in enumerate(cases, start=1):
         case = _require_mapping(raw_case, f"evaluation case {case_number}")
         case_identity = _require_identity(
@@ -182,7 +197,86 @@ def _evaluate_fixture(
         case_order.append(case_identity)
         truths.append(truth)
 
-    predictions = fixture.get("predictions")
+        if generated_partition:
+            raw_branch = case.get("branch_inputs")
+            if not isinstance(raw_branch, list) or len(raw_branch) != 5 or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in raw_branch
+            ):
+                raise EvaluationContractError(
+                    f"evaluation case {case_number} branch_inputs must contain "
+                    "exactly five finite numbers"
+                )
+            branch_inputs.append(tuple(float(value) for value in raw_branch))
+
+    if generated_partition:
+        expected_authority_identity = _content_identity(
+            {
+                "schema_version": schema_version,
+                "source_checksums": dict(source_checksums),
+                "source_identity": source_identity,
+                "split_identity": split_identity,
+                "preprocessing_identity": preprocessing_identity,
+                "case_order_basis": case_order_basis,
+                "cases": cases,
+            }
+        )
+        if authority_identity != expected_authority_identity:
+            raise EvaluationContractError(
+                "evaluation partition-authority identity does not match its payload"
+            )
+        if (
+            len(cases) != 54
+            or authority_kind != "authorized_fixture"
+            or fixture.get("evidence_status") != "noncanonical_fixture"
+        ):
+            raise EvaluationContractError(
+                "a generated evaluation fixture requires one authorized, "
+                "noncanonical 54-case partition"
+            )
+        if "predictions" in fixture:
+            raise EvaluationContractError(
+                "generated evaluation fixtures must not contain predictions"
+            )
+        if predict_fields is None or [
+            identity[0] for identity in predictor_identities
+        ] != list(range(5)):
+            raise EvaluationContractError(
+                "generated evaluation requires a noncanonical passing frozen "
+                "package with seeds 0 through 4"
+            )
+        predictions: object = [
+            {
+                "seed": seed,
+                "checkpoint_identity": checkpoint,
+                "precision_identity": precision,
+                "backend_identity": backend,
+                "content_identity": content,
+                "compatibility_identity": compatibility,
+                "aeps_fields": [
+                    list(field)
+                    for field in predict_fields(
+                        seed,
+                        checkpoint,
+                        tuple(branch_inputs),
+                    )
+                ],
+            }
+            for (
+                seed,
+                checkpoint,
+                _,
+                precision,
+                backend,
+                content,
+                compatibility,
+            ) in predictor_identities
+        ]
+    else:
+        predictions = fixture.get("predictions")
+
     if not isinstance(predictions, list) or len(predictions) < 2:
         raise EvaluationContractError(
             "evaluation fixture must contain at least two predictors for sample "
@@ -193,6 +287,7 @@ def _evaluate_fixture(
     seen_checkpoints: set[str] = set()
     predictor_bindings = {
         (seed, checkpoint): (
+            comparator_status,
             precision_identity,
             backend_identity,
             content_identity,
@@ -201,6 +296,7 @@ def _evaluate_fixture(
         for (
             seed,
             checkpoint,
+            comparator_status,
             precision_identity,
             backend_identity,
             content_identity,
@@ -248,7 +344,7 @@ def _evaluate_fixture(
         for name, actual, expected in zip(
             binding_names,
             actual_binding,
-            expected_binding,
+            expected_binding[1:],
             strict=True,
         ):
             if actual != expected:
@@ -274,6 +370,7 @@ def _evaluate_fixture(
             _seed_metric_report(
                 seed=seed,
                 checkpoint_identity=checkpoint_identity,
+                validation_comparator_status=expected_binding[0],
                 precision_identity=actual_binding[0],
                 backend_identity=actual_binding[1],
                 content_identity=actual_binding[2],
@@ -285,12 +382,45 @@ def _evaluate_fixture(
             )
         )
 
-    report_without_identity = EvaluationReport(
-        schema_version="aeps-metric-report-v1",
+    return _evaluation_report(
         canonical=False,
         evidence_status=evidence_status,
         partition_authority_kind=str(authority_kind),
         partition_authority_identity=authority_identity,
+        case_order_basis=case_order_basis,
+        case_order=case_order,
+        source_checksums=source_checksums,
+        source_identity=source_identity,
+        split_identity=split_identity,
+        preprocessing_identity=preprocessing_identity,
+        run_configuration_identity=run_configuration_identity,
+        seed_reports=seed_reports,
+        artifact_path=artifact_path,
+    )
+
+
+def _evaluation_report(
+    *,
+    canonical: bool,
+    evidence_status: str,
+    partition_authority_kind: str,
+    partition_authority_identity: str,
+    case_order_basis: str,
+    case_order: Sequence[str],
+    source_checksums: Mapping[str, str],
+    source_identity: str,
+    split_identity: str,
+    preprocessing_identity: str,
+    run_configuration_identity: str,
+    seed_reports: Sequence[SeedMetricReport],
+    artifact_path: str | Path | None,
+) -> EvaluationReport:
+    report_without_identity = EvaluationReport(
+        schema_version="aeps-metric-report-v1",
+        canonical=canonical,
+        evidence_status=evidence_status,
+        partition_authority_kind=partition_authority_kind,
+        partition_authority_identity=partition_authority_identity,
         case_order_basis=case_order_basis,
         case_order=tuple(case_order),
         source_checksums=dict(source_checksums),
@@ -299,7 +429,7 @@ def _evaluate_fixture(
         preprocessing_identity=preprocessing_identity,
         run_configuration_identity=run_configuration_identity,
         seed_reports=tuple(seed_reports),
-        cross_seed_summary=_cross_seed_summary(seed_reports),
+        cross_seed_summary=_cross_seed_summary(list(seed_reports)),
         report_content_identity="",
     )
     content = asdict(report_without_identity)
@@ -358,6 +488,7 @@ def _seed_metric_report(
     *,
     seed: int,
     checkpoint_identity: str,
+    validation_comparator_status: str,
     precision_identity: str,
     backend_identity: str,
     content_identity: str,
@@ -395,6 +526,7 @@ def _seed_metric_report(
     return SeedMetricReport(
         seed=seed,
         checkpoint_identity=checkpoint_identity,
+        validation_comparator_status=validation_comparator_status,
         precision_identity=precision_identity,
         backend_identity=backend_identity,
         content_identity=content_identity,

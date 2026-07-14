@@ -9,7 +9,7 @@ import json
 import math
 from pathlib import Path
 import struct
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import torch
 
@@ -32,11 +32,14 @@ from .preparation import (
     prepare_sources,
     _unit_schema_content_identity,
 )
-from .freezing import FreezeResult, freeze_seed_runs
+from .freezing import FreezeResult, _PROTOCOL_FIELDS, freeze_seed_runs
 from .reporting import (
+    EvaluationContractError,
     EvaluationReport,
     _content_identity,
+    _evaluation_report,
     _evaluate_fixture,
+    _seed_metric_report,
 )
 from .training import (
     SeedTrainingResult,
@@ -180,9 +183,12 @@ class BaselineLifecycle:
         package_path: Path,
     ) -> None:
         self._package = package
-        self._coordinate_source = package_path / "runtime_sources" / "co_ind.csv"
+        self._package_path = package_path.resolve()
+        self._coordinate_source = (
+            self._package_path / "runtime_sources" / "co_ind.csv"
+        )
         self._material_source = (
-            package_path / "runtime_sources" / "material_properties.md"
+            self._package_path / "runtime_sources" / "material_properties.md"
         )
 
     @classmethod
@@ -400,16 +406,101 @@ class BaselineLifecycle:
 
     def evaluate(
         self,
-        fixture_path: str | Path,
+        evaluation: str | Path | PreparedDataArtifact,
         *,
         artifact_path: str | Path | None = None,
     ) -> EvaluationReport:
-        """Produce an auditable noncanonical report from an authorized fixture."""
+        """Evaluate an authorized fixture or the gated locked test partition."""
+
+        if artifact_path is not None:
+            output = Path(artifact_path).resolve()
+            if output == self._package_path or self._package_path in output.parents:
+                raise EvaluationContractError(
+                    "evaluation artifact_path must remain outside the loaded package"
+                )
+
+        if isinstance(evaluation, PreparedDataArtifact):
+            partition = self.authorize_locked_test_partition(evaluation)
+            package = self._package
+            case_order = [
+                f"source_row_{source_row}" for source_row in partition.source_rows
+            ]
+            truths = tuple(
+                tuple(float(value) for value in field)
+                for field in partition.raw_aeps_fields
+            )
+            branch_inputs = tuple(
+                tuple(float(value) for value in branch)
+                for branch in partition.branch_inputs
+            )
+            seed_reports = []
+            for predictor in package.predictors:
+                predictions = _predict_frozen_partition(
+                    predictor,
+                    branch_inputs,
+                    package.preprocessing.normalized_trunk_coordinates,
+                )
+                seed_reports.append(
+                    _seed_metric_report(
+                        seed=predictor.seed,
+                        checkpoint_identity=predictor.checkpoint_identity,
+                        validation_comparator_status=(
+                            predictor.validation_comparator_status
+                        ),
+                        precision_identity=predictor.precision_identity,
+                        backend_identity=predictor.backend_identity,
+                        content_identity=predictor.content_identity,
+                        compatibility_identity=predictor.compatibility_identity,
+                        case_order=case_order,
+                        truths=truths,
+                        predictions=predictions,
+                        element_points_mm=package.preprocessing.element_points_mm,
+                    )
+                )
+            return _evaluation_report(
+                canonical=True,
+                evidence_status="canonical_test_evidence",
+                partition_authority_kind="locked_test_manifest",
+                partition_authority_identity=partition.content_identity,
+                case_order_basis="manifest",
+                case_order=case_order,
+                source_checksums=package.source_checksums.as_dict(),
+                source_identity=package.source_identity,
+                split_identity=package.split_identity,
+                preprocessing_identity=package.preprocessing.content_identity,
+                run_configuration_identity=package.run_configuration_identity,
+                seed_reports=seed_reports,
+                artifact_path=artifact_path,
+            )
 
         self._verify_runtime_sources()
         package = self._package
+        predict_fields: Callable[
+            [int, str, tuple[tuple[float, ...], ...]],
+            tuple[tuple[float, ...], ...],
+        ] | None = None
+        if not package.canonical and package.gate_status == "passed" and all(
+            isinstance(predictor.checkpoint, _FrozenCheckpoint)
+            for predictor in package.predictors
+        ):
+            predictors = {
+                (predictor.seed, predictor.checkpoint_identity): predictor
+                for predictor in package.predictors
+            }
+
+            def predict_fields(
+                seed: int,
+                checkpoint_identity: str,
+                branch_inputs: tuple[tuple[float, ...], ...],
+            ) -> tuple[tuple[float, ...], ...]:
+                return _predict_frozen_partition(
+                    predictors[(seed, checkpoint_identity)],
+                    branch_inputs,
+                    package.preprocessing.normalized_trunk_coordinates,
+                )
+
         return _evaluate_fixture(
-            fixture_path,
+            evaluation,
             source_checksums=package.source_checksums.as_dict(),
             source_identity=package.source_identity,
             split_identity=package.split_identity,
@@ -419,6 +510,7 @@ class BaselineLifecycle:
                 (
                     predictor.seed,
                     predictor.checkpoint_identity,
+                    predictor.validation_comparator_status,
                     predictor.precision_identity,
                     predictor.backend_identity,
                     predictor.content_identity,
@@ -428,6 +520,7 @@ class BaselineLifecycle:
             ),
             element_points_mm=package.preprocessing.element_points_mm,
             artifact_path=artifact_path,
+            predict_fields=predict_fields,
         )
 
     def _validate_request(self, request: PredictionRequest) -> None:
@@ -848,6 +941,7 @@ def _parse_frozen_package(
             "frozen package must contain exactly five explicit predictors"
         )
     predictors: list[_LoadedPredictor] = []
+    pooling_identities: set[tuple[str, str, str, str]] = set()
     for index, raw_predictor in enumerate(raw_predictors, start=1):
         predictor = _require_mapping(raw_predictor, f"frozen predictor {index}")
         seed = predictor.get("seed")
@@ -865,6 +959,27 @@ def _parse_frozen_package(
         run_configuration_identity = _require_nonempty_identity(
             predictor, "run_configuration_identity"
         )
+        compatibility = _require_mapping(
+            predictor.get("compatibility"),
+            f"frozen predictor {index} compatibility",
+        )
+        if set(compatibility) != {
+            "source_identity",
+            "split_identity",
+            "preprocessing_identity",
+            "configuration_identity",
+            "precision_identity",
+            "backend_identity",
+            "software_identity",
+            "content_identities",
+        }:
+            raise PredictionContractError(
+                f"frozen predictor {index} compatibility metadata is incomplete"
+            )
+        software_identity = _require_nonempty_identity(
+            compatibility,
+            "software_identity",
+        )
         (
             precision_identity,
             backend_identity,
@@ -877,6 +992,14 @@ def _parse_frozen_package(
             split_identity=split_identity,
             preprocessing=preprocessing,
             run_configuration_identity=run_configuration_identity,
+        )
+        pooling_identities.add(
+            (
+                precision_identity,
+                backend_identity,
+                software_identity,
+                content_identity,
+            )
         )
         artifacts = _require_mapping(
             predictor.get("artifacts"), f"frozen predictor {index} artifacts"
@@ -892,16 +1015,48 @@ def _parse_frozen_package(
             raise PredictionContractError(
                 f"frozen predictor {index} retained artifacts are incomplete"
             )
-        checkpoint_path = _bound_package_artifact(
-            package_path,
-            artifacts["checkpoint"],
-            label=f"frozen predictor {index} checkpoint",
-        )
-        for name, relative_path in artifacts.items():
-            _bound_package_artifact(
+        artifact_paths = {
+            name: _bound_package_artifact(
                 package_path,
                 relative_path,
                 label=f"frozen predictor {index} {name}",
+            )
+            for name, relative_path in artifacts.items()
+        }
+        try:
+            retained_metadata_value = json.loads(
+                artifact_paths["metadata"].read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as error:
+            raise PredictionContractError(
+                f"frozen predictor {index} retained metadata cannot be loaded"
+            ) from error
+        retained_metadata = _require_mapping(
+            retained_metadata_value,
+            f"frozen predictor {index} retained metadata",
+        )
+        retained_without_identity = dict(retained_metadata)
+        retained_identity = retained_without_identity.pop("content_identity", None)
+        selected_checkpoint = retained_metadata.get("selected_checkpoint")
+        retained_protocol = {
+            name: retained_metadata[name]
+            for name in _PROTOCOL_FIELDS
+            if name in retained_metadata
+        }
+        if (
+            retained_identity != _content_identity(retained_without_identity)
+            or retained_metadata.get("seed") != seed
+            or retained_metadata.get("configuration_identity")
+            != run_configuration_identity
+            or retained_metadata.get("compatibility") != compatibility
+            or retained_metadata.get("compatibility_identity")
+            != compatibility_identity
+            or not isinstance(selected_checkpoint, dict)
+            or selected_checkpoint.get("identity") != checkpoint_identity
+            or retained_protocol != protocol_configuration
+        ):
+            raise PredictionContractError(
+                f"frozen predictor {index} retained metadata is incompatible"
             )
         predictors.append(
             _LoadedPredictor(
@@ -913,12 +1068,103 @@ def _parse_frozen_package(
                 compatibility_identity=compatibility_identity,
                 validation_comparator_status=str(comparator_status),
                 run_configuration_identity=run_configuration_identity,
-                checkpoint=_FrozenCheckpoint(checkpoint_path),
+                checkpoint=_FrozenCheckpoint(artifact_paths["checkpoint"]),
             )
         )
     if len({item.checkpoint_identity for item in predictors}) != 5:
         raise PredictionContractError(
             "frozen checkpoint identities must be distinct"
+        )
+    if len(pooling_identities) != 1:
+        raise PredictionContractError(
+            "frozen predictors require compatible precision, backend, software, "
+            "and partition identities"
+        )
+    comparator = gate.get("comparator")
+    seed_evidence = gate.get("seed_evidence")
+    if (
+        gate.get("schema_version") != "baseline-freeze-gate-v1"
+        or gate.get("gate_status") != "passed"
+        or gate.get("evidence_status") != evidence_status
+        or gate.get("test_partition_status") != test_partition_status
+        or gate.get("protocol_identity") != protocol_identity
+        or gate.get("required_passing_seed_count") != 4
+        or gate.get("strict_comparison") is not True
+        or gate.get("failure_reasons") != []
+        or gate.get("revision_requirement") is not None
+        or not isinstance(comparator, dict)
+        or comparator.get("kind") != "element_wise_training_mean_aeps_field"
+        or comparator.get("applied_unchanged_to_validation_case_count") != 51
+        or not isinstance(seed_evidence, list)
+        or len(seed_evidence) != 5
+    ):
+        raise PredictionContractError(
+            "frozen package gate evidence is incompatible"
+        )
+    training_mean = comparator.get("training_mean_aeps_field")
+    comparator_rmse = comparator.get("global_validation_rmse")
+    if (
+        not isinstance(training_mean, list)
+        or len(training_mean) != 48
+        or any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            for value in training_mean
+        )
+        or isinstance(comparator_rmse, bool)
+        or not isinstance(comparator_rmse, (int, float))
+        or not math.isfinite(float(comparator_rmse))
+        or comparator_rmse < 0.0
+    ):
+        raise PredictionContractError(
+            "frozen package gate evidence is incompatible"
+        )
+    seed_rmse: list[float] = []
+    passing_count = 0
+    for loaded_predictor, raw_evidence in zip(
+        predictors,
+        seed_evidence,
+        strict=True,
+    ):
+        if not isinstance(raw_evidence, dict):
+            raise PredictionContractError(
+                "frozen package gate evidence is incompatible"
+            )
+        validation_rmse = raw_evidence.get("validation_global_rmse")
+        if (
+            isinstance(validation_rmse, bool)
+            or not isinstance(validation_rmse, (int, float))
+            or not math.isfinite(float(validation_rmse))
+            or validation_rmse < 0.0
+        ):
+            raise PredictionContractError(
+                "frozen package gate evidence is incompatible"
+            )
+        seed_status = (
+            "passed" if validation_rmse < comparator_rmse else "not_passed"
+        )
+        if (
+            raw_evidence.get("seed") != loaded_predictor.seed
+            or raw_evidence.get("checkpoint_identity")
+            != loaded_predictor.checkpoint_identity
+            or raw_evidence.get("comparator_status") != seed_status
+            or loaded_predictor.validation_comparator_status != seed_status
+        ):
+            raise PredictionContractError(
+                "frozen package gate evidence is incompatible"
+            )
+        seed_rmse.append(float(validation_rmse))
+        passing_count += seed_status == "passed"
+    mean_seed_rmse = sum(seed_rmse) / 5
+    if (
+        passing_count < 4
+        or gate.get("passing_seed_count") != passing_count
+        or gate.get("mean_seed_global_rmse") != mean_seed_rmse
+        or mean_seed_rmse >= comparator_rmse
+    ):
+        raise PredictionContractError(
+            "frozen package gate evidence is incompatible"
         )
     return _LoadedPackage(
         canonical=bool(canonical),
@@ -1159,6 +1405,27 @@ def _predict_frozen_checkpoint(
             torch.tensor(normalized_trunk_coordinates, dtype=torch.float32),
         )[0]
     return [float(value) for value in values]
+
+
+def _predict_frozen_partition(
+    predictor: _LoadedPredictor,
+    branch_inputs: tuple[tuple[float, ...], ...],
+    normalized_trunk_coordinates: tuple[tuple[float, float], ...],
+) -> tuple[tuple[float, ...], ...]:
+    model = _load_frozen_model(predictor, require_canonical=False)
+    with torch.no_grad():
+        values = model(
+            torch.tensor(branch_inputs, dtype=torch.float32),
+            torch.tensor(normalized_trunk_coordinates, dtype=torch.float32),
+        )
+    predictions = tuple(
+        tuple(float(value) for value in field) for field in values
+    )
+    if not all(math.isfinite(value) for field in predictions for value in field):
+        raise PredictionContractError(
+            "the selected frozen checkpoint produced a non-finite AEPS value"
+        )
+    return predictions
 
 
 def _load_frozen_model(

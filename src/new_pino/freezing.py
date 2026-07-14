@@ -285,6 +285,7 @@ def freeze_seed_runs(
     validation_report = _validation_report(
         prepared,
         validated_runs,
+        seed_evidence,
         canonical=canonical,
     )
     predictors = _copy_seed_artifacts(
@@ -629,6 +630,7 @@ def _validate_seed_run(
 def _validation_report(
     prepared: PreparedDataArtifact,
     runs: list[_ValidatedSeedRun],
+    comparator_evidence: list[SeedComparatorEvidence],
     *,
     canonical: bool,
 ) -> dict[str, object]:
@@ -642,6 +644,9 @@ def _validation_report(
         for point in prepared.preprocessing.element_points_mm
     )
     seed_reports = []
+    comparator_status = {
+        item.seed: item.comparator_status for item in comparator_evidence
+    }
     for run in runs:
         predictions = tuple(
             tuple(float(value) for value in prediction)
@@ -655,6 +660,7 @@ def _validation_report(
             _seed_metric_report(
                 seed=run.result.seed,
                 checkpoint_identity=run.result.checkpoint_identity,
+                validation_comparator_status=comparator_status[run.result.seed],
                 precision_identity=str(compatibility["precision_identity"]),
                 backend_identity=str(compatibility["backend_identity"]),
                 content_identity=_content_identity(content_identities),
