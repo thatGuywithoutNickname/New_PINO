@@ -85,7 +85,7 @@ def _gate_artifacts(
     return repository, BaselineLifecycle.prepare(repository)
 
 
-def _fake_seed_run(
+def _train_smoke_seed_run(
     root: Path,
     prepared: PreparedDataArtifact,
     *,
@@ -122,7 +122,7 @@ def _runs(
     count: int = 5,
 ) -> tuple[SeedTrainingResult, ...]:
     return tuple(
-        _fake_seed_run(root, prepared, seed=seed)
+        _train_smoke_seed_run(root, prepared, seed=seed)
         for seed in range(count)
     )
 
@@ -461,7 +461,7 @@ def test_non_finite_validation_evidence_is_rejected(tmp_path: Path) -> None:
     repository, prepared = _gate_artifacts(tmp_path, training_aeps=1.4)
     runs = list(_runs(tmp_path / "runs", prepared, count=4))
     runs.append(
-        _fake_seed_run(
+        _train_smoke_seed_run(
             tmp_path / "runs",
             prepared,
             seed=4,
