@@ -44,7 +44,7 @@ from .training import (
     _EXPECTED_ARCHITECTURE,
     _DeepONet,
     _TRUNK_WIDTHS,
-    _torch_state_identity,
+    _checkpoint_identity,
     train_seed,
 )
 
@@ -144,7 +144,7 @@ class _FrozenCheckpoint:
 
 
 @dataclass(frozen=True)
-class _FixturePredictor:
+class _LoadedPredictor:
     seed: int
     checkpoint_identity: str
     precision_identity: str
@@ -157,7 +157,7 @@ class _FixturePredictor:
 
 
 @dataclass(frozen=True)
-class _FixturePackage:
+class _LoadedPackage:
     canonical: bool
     evidence_status: str
     gate_status: str
@@ -167,7 +167,7 @@ class _FixturePackage:
     split_identity: str
     run_configuration_identity: str
     preprocessing: _PreprocessingState
-    predictors: tuple[_FixturePredictor, ...]
+    predictors: tuple[_LoadedPredictor, ...]
 
 
 class BaselineLifecycle:
@@ -175,7 +175,7 @@ class BaselineLifecycle:
 
     def __init__(
         self,
-        package: _FixturePackage,
+        package: _LoadedPackage,
         *,
         package_path: Path,
     ) -> None:
@@ -248,7 +248,7 @@ class BaselineLifecycle:
                 metadata = json.load(stream)
         except (OSError, json.JSONDecodeError) as error:
             raise PredictionContractError(
-                f"fixture package metadata {metadata_path} cannot be loaded: {error}"
+                f"package metadata {metadata_path} cannot be loaded: {error}"
             ) from error
         if isinstance(metadata, dict) and metadata.get("schema_version") == (
             "baseline-frozen-package-v1"
@@ -456,7 +456,7 @@ class BaselineLifecycle:
             upper=27.0,
         )
 
-    def _resolve_predictor(self, selector: PredictorSelector) -> _FixturePredictor:
+    def _resolve_predictor(self, selector: PredictorSelector) -> _LoadedPredictor:
         predictors = self._package.predictors
         has_seed = selector.seed is not None
         has_checkpoint = selector.checkpoint_identity is not None
@@ -631,7 +631,7 @@ def _parse_predictor_binding(
     )
 
 
-def _parse_fixture_package(metadata: object) -> _FixturePackage:
+def _parse_fixture_package(metadata: object) -> _LoadedPackage:
     package = _require_mapping(metadata, "fixture package")
     if package.get("schema_version") != "fixture-prediction-package-v1":
         raise PredictionContractError(
@@ -677,7 +677,7 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
         )
     seeds: set[int] = set()
     checkpoints: set[str] = set()
-    parsed_predictors: list[_FixturePredictor] = []
+    parsed_predictors: list[_LoadedPredictor] = []
     for predictor_number, raw_predictor in enumerate(predictors, start=1):
         predictor = _require_mapping(
             raw_predictor, f"fixture predictor {predictor_number}"
@@ -744,7 +744,7 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
                 f"fixture predictor {predictor_number} weight_scale must be positive"
             )
         parsed_predictors.append(
-            _FixturePredictor(
+            _LoadedPredictor(
                 seed=seed,
                 checkpoint_identity=checkpoint,
                 precision_identity=precision_identity,
@@ -762,7 +762,7 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
             )
         )
 
-    return _FixturePackage(
+    return _LoadedPackage(
         canonical=False,
         evidence_status="noncanonical_fixture",
         gate_status="fixture_only",
@@ -779,7 +779,7 @@ def _parse_fixture_package(metadata: object) -> _FixturePackage:
 def _parse_frozen_package(
     metadata: object,
     package_path: Path,
-) -> _FixturePackage:
+) -> _LoadedPackage:
     package = _require_mapping(metadata, "frozen package")
     package_without_identity = dict(package)
     package_content_identity = package_without_identity.pop(
@@ -847,7 +847,7 @@ def _parse_frozen_package(
         raise PredictionContractError(
             "frozen package must contain exactly five explicit predictors"
         )
-    predictors: list[_FixturePredictor] = []
+    predictors: list[_LoadedPredictor] = []
     for index, raw_predictor in enumerate(raw_predictors, start=1):
         predictor = _require_mapping(raw_predictor, f"frozen predictor {index}")
         seed = predictor.get("seed")
@@ -904,7 +904,7 @@ def _parse_frozen_package(
                 label=f"frozen predictor {index} {name}",
             )
         predictors.append(
-            _FixturePredictor(
+            _LoadedPredictor(
                 seed=seed,
                 checkpoint_identity=checkpoint_identity,
                 precision_identity=precision_identity,
@@ -920,7 +920,7 @@ def _parse_frozen_package(
         raise PredictionContractError(
             "frozen checkpoint identities must be distinct"
         )
-    return _FixturePackage(
+    return _LoadedPackage(
         canonical=bool(canonical),
         evidence_status=str(evidence_status),
         gate_status="passed",
@@ -1148,7 +1148,7 @@ def _bound_package_artifact(
 
 
 def _predict_frozen_checkpoint(
-    predictor: _FixturePredictor,
+    predictor: _LoadedPredictor,
     branch: tuple[float, ...],
     normalized_trunk_coordinates: tuple[tuple[float, float], ...],
 ) -> list[float]:
@@ -1162,7 +1162,7 @@ def _predict_frozen_checkpoint(
 
 
 def _load_frozen_model(
-    predictor: _FixturePredictor,
+    predictor: _LoadedPredictor,
     *,
     require_canonical: bool,
 ) -> _DeepONet:
@@ -1200,12 +1200,39 @@ def _load_frozen_model(
             "locked-test authorization requires five canonical seed checkpoints"
         )
     model_state = checkpoint.get("model_state")
+    try:
+        (
+            actual_checkpoint_identity,
+            actual_model_state_identity,
+            actual_optimizer_state_identity,
+        ) = _checkpoint_identity(
+            seed=predictor.seed,
+            epoch=int(checkpoint["epoch"]),
+            validation_mse=float(checkpoint["validation_mse"]),
+            model_state=model_state,
+            optimizer_state=checkpoint["optimizer_state"],
+            run_configuration_identity=predictor.run_configuration_identity,
+            compatibility_identity=predictor.compatibility_identity,
+            identities={
+                "source": checkpoint["source_identity"],
+                "split": checkpoint["split_identity"],
+                "preprocessing": checkpoint["preprocessing_identity"],
+                "feature_schema": checkpoint["feature_schema_identity"],
+                "unit_schema": checkpoint["unit_schema_identity"],
+            },
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise PredictionContractError("frozen checkpoint is incomplete") from error
     if (
         not isinstance(model_state, Mapping)
         or checkpoint.get("model_state_identity")
-        != _torch_state_identity(model_state)
+        != actual_model_state_identity
+        or checkpoint.get("optimizer_state_identity")
+        != actual_optimizer_state_identity
+        or checkpoint.get("content_identity") != predictor.checkpoint_identity
+        or actual_checkpoint_identity != predictor.checkpoint_identity
     ):
-        raise PredictionContractError("frozen checkpoint model state is stale")
+        raise PredictionContractError("frozen checkpoint content identity is stale")
     model = _DeepONet()
     try:
         model.load_state_dict(model_state)

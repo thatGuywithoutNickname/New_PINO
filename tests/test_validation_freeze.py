@@ -21,7 +21,7 @@ from new_pino import (
     SeedTrainingResult,
 )
 from new_pino.preparation import PreparedDataArtifact, PreparedPartition
-from new_pino.training import _checkpoint_identity
+from new_pino.training import _checkpoint_identity, _torch_state_identity
 from test_source_preflight import synthetic_repository
 
 
@@ -132,6 +132,10 @@ def _rewrite_checkpoint_binding(
     metadata: dict[str, object],
     checkpoint: dict[str, object],
 ) -> SeedTrainingResult:
+    identities = metadata["identities"]
+    selected_checkpoint = metadata["selected_checkpoint"]
+    assert isinstance(identities, dict)
+    assert isinstance(selected_checkpoint, dict)
     checkpoint_identity, model_identity, optimizer_identity = _checkpoint_identity(
         seed=run.seed,
         epoch=run.best_epoch,
@@ -142,7 +146,7 @@ def _rewrite_checkpoint_binding(
         compatibility_identity=str(checkpoint["compatibility_identity"]),
         identities={
             name: value
-            for name, value in metadata["identities"].items()
+            for name, value in identities.items()
             if name != "run_configuration"
         },
     )
@@ -151,7 +155,7 @@ def _rewrite_checkpoint_binding(
     checkpoint["model_state_identity"] = model_identity
     checkpoint["optimizer_state_identity"] = optimizer_identity
     torch.save(checkpoint, run.checkpoint_path)
-    metadata["selected_checkpoint"]["identity"] = checkpoint_identity
+    selected_checkpoint["identity"] = checkpoint_identity
     metadata["content_identity"] = _identity(
         {key: value for key, value in metadata.items() if key != "content_identity"}
     )
@@ -272,6 +276,7 @@ def test_one_nonpassing_seed_is_retained_when_majority_and_mean_pass(
         "passed",
         "passed",
     ]
+    assert result.package_path is not None
     package = json.loads((result.package_path / "package.json").read_text(encoding="utf-8"))
     assert len(package["predictors"]) == 5
     assert package["predictors"][2]["validation_comparator_status"] == "not_passed"
@@ -510,4 +515,38 @@ def test_frozen_cpu_smoke_package_uses_explicit_prediction_contract_and_stays_lo
     ):
         lifecycle.authorize_locked_test_partition(
             replace(prepared, partitions=_LockedTestPartitions(prepared.partitions))
+        )
+
+
+def test_frozen_package_rejects_checkpoint_tampering_after_freeze(
+    tmp_path: Path,
+) -> None:
+    repository, prepared = _gate_artifacts(tmp_path, training_aeps=1.4)
+    package_path = tmp_path / "frozen"
+    BaselineLifecycle.freeze(
+        prepared,
+        _runs(tmp_path / "training", prepared),
+        repository_root=repository,
+        package_directory=package_path,
+    )
+    package = json.loads((package_path / "package.json").read_text(encoding="utf-8"))
+    checkpoint_path = package_path / package["predictors"][4]["artifacts"]["checkpoint"]
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+    model_state = checkpoint["model_state"]
+    parameter_name = next(iter(model_state))
+    model_state[parameter_name] = model_state[parameter_name].clone()
+    model_state[parameter_name].view(-1)[0] += 1.0
+    checkpoint["model_state_identity"] = _torch_state_identity(model_state)
+    torch.save(checkpoint, checkpoint_path)
+
+    lifecycle = BaselineLifecycle.from_package(package_path)
+    with pytest.raises(
+        PredictionContractError,
+        match="frozen checkpoint content identity is stale",
+    ):
+        lifecycle.predict(
+            PredictionRequest(
+                OperatingCondition(22.5, 0.55, 23.5),
+                PredictorSelector(seed=4),
+            )
         )
