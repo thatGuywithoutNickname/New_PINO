@@ -26,7 +26,11 @@ from .reporting import (
     MeanAndSampleStandardDeviation,
     SeedMetricReport,
 )
-from .training import CpuSmokeTrainingResult, TrainingContractError
+from .training import (
+    CpuSmokeTrainingResult,
+    SeedTrainingResult,
+    TrainingContractError,
+)
 
 __all__ = [
     "BaselineLifecycle",
@@ -42,6 +46,7 @@ __all__ = [
     "PredictionResult",
     "PredictorSelector",
     "SeedMetricReport",
+    "SeedTrainingResult",
     "PreparedDataArtifact",
     "PreparedPartition",
     "PreprocessingError",

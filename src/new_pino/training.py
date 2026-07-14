@@ -1,4 +1,4 @@
-"""Noncanonical CPU smoke training through the public baseline boundary."""
+"""Deterministic seed training through the public baseline boundary."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import platform
 import random
+import subprocess
 from typing import Literal, Mapping
 
 import numpy as np
@@ -18,7 +19,10 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from .preparation import PreparedDataArtifact
+from .preparation import (
+    PreparedDataArtifact,
+    _partition_content_identity,
+)
 
 
 _BRANCH_WIDTHS = (5, 32, 64, 32, 16)
@@ -39,6 +43,7 @@ _THRESHOLD_MODE: Literal["rel"] = "rel"
 _MIN_LEARNING_RATE = 1e-6
 _EARLY_STOPPING_PATIENCE = 300
 _CANONICAL_MAX_EPOCHS = 3000
+_CANONICAL_SEEDS = (0, 1, 2, 3, 4)
 _EXPECTED_ARCHITECTURE: Mapping[str, object] = {
     "kind": "dot_product_deeponet",
     "branch_widths": list(_BRANCH_WIDTHS),
@@ -88,10 +93,20 @@ _EARLY_STOPPING = {
     "meaningful_progress_relative_threshold": _MEANINGFUL_PROGRESS_THRESHOLD,
     "patience_epochs": _EARLY_STOPPING_PATIENCE,
 }
+_CUBLAS_WORKSPACE_CONFIGURATION = ":4096:8"
+_DETERMINISTIC_EXECUTION = {
+    "algorithms": "strict",
+    "cudnn_benchmark": False,
+    "automatic_mixed_precision": False,
+    "tensorfloat32": False,
+    "cublas_workspace_configuration": _CUBLAS_WORKSPACE_CONFIGURATION,
+    "cublas_configuration_timing": "before_cuda_initialization",
+}
 _CANONICAL_CONFIGURATION = {
     "backend": "cuda:0",
-    "seeds": [0, 1, 2, 3, 4],
+    "seeds": list(_CANONICAL_SEEDS),
     "max_epochs": _CANONICAL_MAX_EPOCHS,
+    "deterministic_execution": _DETERMINISTIC_EXECUTION,
     "early_stopping": _EARLY_STOPPING,
     "scheduler": _SCHEDULER,
 }
@@ -111,15 +126,34 @@ _REGULARIZATION = {
     "weight_decay": _WEIGHT_DECAY,
     "gradient_clipping": False,
 }
+_CONTROLLED_FAULT_STAGE: str | None = None
+_CUBLAS_CONFIGURED_BEFORE_CUDA = False
 
 
 class TrainingContractError(RuntimeError):
-    """A CPU smoke run violated the accepted training contract."""
+    """A deterministic seed run violated the accepted training contract."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        failed_stage: str | None = None,
+        failure_artifact_path: Path | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.failed_stage = failed_stage
+        self.failure_artifact_path = failure_artifact_path
+
+
+class _NonFiniteTrainingState(Exception):
+    def __init__(self, stage: str, detail: str) -> None:
+        self.stage = stage
+        self.detail = detail
 
 
 @dataclass(frozen=True)
-class CpuSmokeTrainingResult:
-    """Paths and identities retained by one noncanonical CPU smoke run."""
+class SeedTrainingResult:
+    """Paths and identities retained by one deterministic seed run."""
 
     seed: int
     evidence_status: str
@@ -170,48 +204,111 @@ def _tapered_mlp(widths: tuple[int, ...]) -> nn.Sequential:
     return nn.Sequential(*modules)
 
 
-def train_cpu_smoke(
+CpuSmokeTrainingResult = SeedTrainingResult
+
+
+def train_seed(
     prepared: PreparedDataArtifact,
     *,
     seed: int,
     artifact_directory: str | Path,
-    smoke_max_epochs: int,
-) -> CpuSmokeTrainingResult:
-    """Train and retain one explicitly noncanonical DeepONet CPU smoke seed."""
+    smoke_max_epochs: int | None = None,
+) -> SeedTrainingResult:
+    """Train one canonical GPU seed or an explicitly bounded CPU smoke seed."""
 
     if not isinstance(seed, int) or isinstance(seed, bool) or not 0 <= seed < 2**32:
         raise TrainingContractError(
             "training seed must be an integer from 0 to 2^32 - 1"
         )
-    if (
+    canonical_backend = smoke_max_epochs is None
+    if canonical_backend and seed not in _CANONICAL_SEEDS:
+        raise TrainingContractError(
+            "canonical training seed must be one of 0, 1, 2, 3, or 4"
+        )
+    if not canonical_backend and (
         not isinstance(smoke_max_epochs, int)
         or isinstance(smoke_max_epochs, bool)
         or smoke_max_epochs < 1
     ):
         raise TrainingContractError("smoke_max_epochs must be a positive integer")
-
     training = prepared.partitions["training"]
     validation = prepared.partitions["validation"]
     preprocessing = prepared.preprocessing
+    controlled_fault_stage = _CONTROLLED_FAULT_STAGE
+    expected_bindings: tuple[tuple[str, object], ...] = (
+        ("source checksums", prepared.source_checksums),
+        ("source identity", preprocessing.source_identity),
+        ("split identity", preprocessing.split_identity),
+        ("preprocessing identity", preprocessing.content_identity),
+        ("feature schema identity", preprocessing.feature_schema_identity),
+        ("unit schema identity", preprocessing.unit_schema_identity),
+    )
+    content_identities: dict[str, str] = {}
+    for expected_name, partition in (
+        ("training", training),
+        ("validation", validation),
+    ):
+        if partition.name != expected_name:
+            raise TrainingContractError(
+                f"{expected_name} partition name is incompatible"
+            )
+        actual_bindings = (
+            partition.source_checksums,
+            partition.source_identity,
+            partition.split_identity,
+            partition.preprocessing_identity,
+            partition.feature_schema_identity,
+            partition.unit_schema_identity,
+        )
+        for (binding_name, expected), actual in zip(
+            expected_bindings,
+            actual_bindings,
+            strict=True,
+        ):
+            if actual != expected:
+                raise TrainingContractError(
+                    f"{expected_name} partition {binding_name} is incompatible"
+                )
+        actual_content_identity = _partition_content_identity(partition)
+        if actual_content_identity != partition.content_identity:
+            raise TrainingContractError(
+                f"{expected_name} partition content identity is incompatible"
+            )
+        content_identities[f"{expected_name}_partition"] = actual_content_identity
     output = Path(artifact_directory)
     output.mkdir(parents=True, exist_ok=True)
 
-    _configure_cpu_determinism(seed)
-    model = _DeepONet().to(device="cpu", dtype=torch.float32)
+    device_identifier = "cuda:0" if canonical_backend else "cpu"
+    canonical = canonical_backend and controlled_fault_stage is None
+    if canonical:
+        evidence_status = "canonical_seed_run"
+    elif canonical_backend:
+        evidence_status = "noncanonical_controlled_gpu_failure"
+    else:
+        evidence_status = "noncanonical_cpu_smoke"
+    max_epochs = (
+        _CANONICAL_MAX_EPOCHS if smoke_max_epochs is None else smoke_max_epochs
+    )
+    device = _configure_determinism(seed, device_identifier=device_identifier)
+    model = _DeepONet().to(device=device, dtype=torch.float32)
     if sum(parameter.numel() for parameter in model.parameters()) != 9729:
         raise TrainingContractError(
             "the DeepONet must contain exactly 9,729 parameters"
         )
-    initial_parameter_identity = _model_state_identity(model.state_dict())
+    initial_parameter_identity = _torch_state_identity(model.state_dict())
 
     training_branch = torch.from_numpy(np.array(training.branch_inputs, copy=True))
     training_targets = torch.from_numpy(np.array(training.raw_aeps_fields, copy=True))
     training_rows = torch.tensor(training.source_rows, dtype=torch.int64)
-    validation_branch = torch.from_numpy(np.array(validation.branch_inputs, copy=True))
+    validation_branch = torch.from_numpy(
+        np.array(validation.branch_inputs, copy=True)
+    ).to(device)
     validation_targets = torch.from_numpy(
         np.array(validation.raw_aeps_fields, copy=True)
-    )
-    trunk_inputs = torch.from_numpy(np.array(training.trunk_inputs, copy=True))
+    ).to(device)
+    trunk_inputs = torch.from_numpy(
+        np.array(training.trunk_inputs, copy=True)
+    ).to(device)
     loader_generator = torch.Generator(device="cpu")
     loader_generator.manual_seed(seed)
     loader = DataLoader(
@@ -249,8 +346,8 @@ def train_cpu_smoke(
     }
     run_configuration = {
         "schema_version": "baseline-training-configuration-v1",
-        "canonical": False,
-        "evidence_status": "noncanonical_cpu_smoke",
+        "canonical": canonical,
+        "evidence_status": evidence_status,
         "seed": seed,
         "architecture": dict(_EXPECTED_ARCHITECTURE),
         "initialization": _INITIALIZATION,
@@ -260,10 +357,46 @@ def train_cpu_smoke(
         "regularization": _REGULARIZATION,
         "precision": _PRECISION,
         "canonical_configuration": _CANONICAL_CONFIGURATION,
-        "smoke_override": {"backend": "cpu", "max_epochs": smoke_max_epochs},
         "identities": identities,
     }
+    if smoke_max_epochs is not None:
+        run_configuration["smoke_override"] = {
+            "backend": "cpu",
+            "max_epochs": smoke_max_epochs,
+        }
+    if controlled_fault_stage is not None:
+        run_configuration["controlled_fault_stage"] = controlled_fault_stage
     run_configuration_identity = _canonical_json_identity(run_configuration)
+    environment = _environment_metadata(device_identifier)
+    compatibility = {
+        "source_identity": preprocessing.source_identity,
+        "split_identity": preprocessing.split_identity,
+        "preprocessing_identity": preprocessing.content_identity,
+        "configuration_identity": run_configuration_identity,
+        "precision_identity": _canonical_json_identity(_PRECISION),
+        "backend_identity": _canonical_json_identity(environment),
+        "content_identities": content_identities,
+    }
+    compatibility_identity = _canonical_json_identity(compatibility)
+    run_kind = "canonical" if canonical_backend else "cpu_smoke"
+    stem = f"seed_{seed}_{run_kind}_{run_configuration_identity[:12]}"
+    checkpoint_path = output / f"{stem}_checkpoint.pt"
+    validation_predictions_path = output / f"{stem}_validation_predictions.npy"
+    history_path = output / f"{stem}_history.json"
+    metadata_path = output / f"{stem}_metadata.json"
+    failure_artifact_path = output / f"{stem}_failure.json"
+    artifact_paths = (
+        checkpoint_path,
+        validation_predictions_path,
+        history_path,
+        metadata_path,
+        failure_artifact_path,
+    )
+    existing_path = next((path for path in artifact_paths if path.exists()), None)
+    if existing_path is not None:
+        raise TrainingContractError(
+            f"training artifact path already exists: {existing_path}"
+        )
 
     best_validation_mse = math.inf
     best_meaningful_mse = math.inf
@@ -272,39 +405,103 @@ def train_cpu_smoke(
     best_optimizer_state: dict[str, object] | None = None
     epochs_without_meaningful_progress = 0
     optimizer_steps = 0
+    optimizer_updates_attempted = 0
     epoch_history: list[dict[str, object]] = []
-    stopping_reason = "smoke_epoch_ceiling"
+    stopping_reason = (
+        "canonical_epoch_ceiling" if canonical_backend else "smoke_epoch_ceiling"
+    )
 
-    for epoch in range(1, smoke_max_epochs + 1):
+    def fail(
+        stage: str,
+        *,
+        epoch: int,
+        batch_index: int | None,
+        detail: str,
+    ) -> None:
+        location = f"epoch {epoch}"
+        if batch_index is not None:
+            location += f", batch {batch_index}"
+        message = f"seed {seed} failed at {stage} during {location}: {detail}"
+        failure = {
+            "schema_version": "baseline-training-failure-v1",
+            "status": "failed",
+            "canonical": canonical,
+            "evidence_status": evidence_status,
+            "seed": seed,
+            "failed_stage": stage,
+            "epoch": epoch,
+            "batch_index": batch_index,
+            "optimizer_updates_attempted": optimizer_updates_attempted,
+            "optimizer_updates_completed": optimizer_steps,
+            "test_partition_status": "locked_not_accessed",
+            "message": message,
+            "run_configuration": run_configuration,
+            "environment": environment,
+            "source_checksums": dict(prepared.source_checksums),
+            "compatibility": compatibility,
+            "compatibility_identity": compatibility_identity,
+        }
+        failure["content_identity"] = _canonical_json_identity(failure)
+        _write_json(failure_artifact_path, failure)
+        raise TrainingContractError(
+            message,
+            failed_stage=stage,
+            failure_artifact_path=failure_artifact_path,
+        )
+
+    for epoch in range(1, max_epochs + 1):
         model.train()
         epoch_squared_error = 0.0
         epoch_value_count = 0
         batch_sizes: list[int] = []
         batch_source_rows: list[list[int]] = []
-        for branch_batch, target_batch, source_row_batch in loader:
+        for batch_index, (branch_batch, target_batch, source_row_batch) in enumerate(
+            loader,
+            start=1,
+        ):
+            branch_batch = branch_batch.to(device)
+            target_batch = target_batch.to(device)
             optimizer.zero_grad(set_to_none=True)
             predictions = model(branch_batch, trunk_inputs)
             loss = torch.nn.functional.mse_loss(predictions, target_batch)
+            if controlled_fault_stage == "training_loss":
+                loss = loss * torch.tensor(float("nan"), device=device)
             if not bool(torch.isfinite(loss)):
-                raise TrainingContractError(
-                    f"seed {seed} produced a non-finite training loss at epoch {epoch}"
+                fail(
+                    "training_loss",
+                    epoch=epoch,
+                    batch_index=batch_index,
+                    detail="the scalar loss is non-finite",
                 )
             loss.backward()
+            if controlled_fault_stage == "training_gradient":
+                first_parameter = next(model.parameters())
+                assert first_parameter.grad is not None
+                first_parameter.grad.view(-1)[0] = float("nan")
             for name, parameter in model.named_parameters():
                 if parameter.grad is None or not bool(
                     torch.all(torch.isfinite(parameter.grad))
                 ):
-                    raise TrainingContractError(
-                        f"seed {seed} produced an invalid gradient for {name} "
-                        f"at epoch {epoch}"
+                    fail(
+                        "training_gradient",
+                        epoch=epoch,
+                        batch_index=batch_index,
+                        detail=f"the gradient for {name} is missing or non-finite",
                     )
+            optimizer_updates_attempted += 1
             optimizer.step()
+            if controlled_fault_stage == "training_parameter":
+                with torch.no_grad():
+                    next(model.parameters()).view(-1)[0] = float("nan")
             if any(
                 not bool(torch.all(torch.isfinite(parameter)))
                 for parameter in model.parameters()
             ):
-                raise TrainingContractError(
-                    f"seed {seed} produced a non-finite parameter at epoch {epoch}"
+                fail(
+                    "training_parameter",
+                    epoch=epoch,
+                    batch_index=batch_index,
+                    detail="a model parameter is non-finite after the optimizer update",
                 )
 
             batch_value_count = target_batch.numel()
@@ -314,14 +511,21 @@ def train_cpu_smoke(
             batch_sizes.append(len(target_batch))
             batch_source_rows.append(source_row_batch.tolist())
 
-        validation_mse, _ = _validation_mse(
-            model,
-            validation_branch,
-            trunk_inputs,
-            validation_targets,
-            seed=seed,
-            epoch=epoch,
-        )
+        try:
+            validation_mse, _ = _validation_mse(
+                model,
+                validation_branch,
+                trunk_inputs,
+                validation_targets,
+                controlled_fault_stage=controlled_fault_stage,
+            )
+        except _NonFiniteTrainingState as failure:
+            fail(
+                failure.stage,
+                epoch=epoch,
+                batch_index=None,
+                detail=failure.detail,
+            )
         checkpoint_selected = validation_mse < best_validation_mse
         if checkpoint_selected:
             best_validation_mse = validation_mse
@@ -377,48 +581,55 @@ def train_cpu_smoke(
 
     if best_model_state is None or best_optimizer_state is None:
         raise TrainingContractError("training completed without a finite checkpoint")
-    final_parameter_identity = _model_state_identity(model.state_dict())
+    final_parameter_identity = _torch_state_identity(model.state_dict())
     model.load_state_dict(best_model_state)
-    restored_validation_mse, validation_predictions = _validation_mse(
-        model,
-        validation_branch,
-        trunk_inputs,
-        validation_targets,
-        seed=seed,
-        epoch=best_epoch,
-    )
+    try:
+        restored_validation_mse, validation_predictions = _validation_mse(
+            model,
+            validation_branch,
+            trunk_inputs,
+            validation_targets,
+        )
+    except _NonFiniteTrainingState as failure:
+        fail(
+            failure.stage,
+            epoch=best_epoch,
+            batch_index=None,
+            detail=failure.detail,
+        )
     if restored_validation_mse != best_validation_mse:
         raise TrainingContractError(
             "restored best checkpoint does not reproduce its validation MSE"
         )
 
-    selected_parameter_identity = _model_state_identity(best_model_state)
+    selected_parameter_identity = _torch_state_identity(best_model_state)
+    selected_optimizer_identity = _torch_state_identity(best_optimizer_state)
     checkpoint_identity = _canonical_json_identity(
         {
             "seed": seed,
             "epoch": best_epoch,
             "validation_mse": best_validation_mse,
             "model_state_identity": selected_parameter_identity,
+            "optimizer_state_identity": selected_optimizer_identity,
             "run_configuration_identity": run_configuration_identity,
+            "compatibility_identity": compatibility_identity,
             **identities,
         }
     )
-    stem = f"seed_{seed}_cpu_smoke"
-    checkpoint_path = output / f"{stem}_checkpoint.pt"
-    validation_predictions_path = output / f"{stem}_validation_predictions.npy"
-    history_path = output / f"{stem}_history.json"
-    metadata_path = output / f"{stem}_metadata.json"
 
     torch.save(
         {
             "schema_version": "baseline-checkpoint-v1",
-            "canonical": False,
-            "evidence_status": "noncanonical_cpu_smoke",
+            "canonical": canonical,
+            "evidence_status": evidence_status,
             "seed": seed,
             "epoch": best_epoch,
             "validation_mse": best_validation_mse,
             "checkpoint_identity": checkpoint_identity,
             "run_configuration_identity": run_configuration_identity,
+            "compatibility": compatibility,
+            "compatibility_identity": compatibility_identity,
+            "content_identity": checkpoint_identity,
             "source_checksums": dict(prepared.source_checksums),
             "source_identity": preprocessing.source_identity,
             "split_identity": preprocessing.split_identity,
@@ -426,6 +637,8 @@ def train_cpu_smoke(
             "feature_schema_identity": preprocessing.feature_schema_identity,
             "unit_schema_identity": preprocessing.unit_schema_identity,
             "architecture": dict(_EXPECTED_ARCHITECTURE),
+            "model_state_identity": selected_parameter_identity,
+            "optimizer_state_identity": selected_optimizer_identity,
             "model_state": best_model_state,
             "optimizer_state": best_optimizer_state,
         },
@@ -436,7 +649,7 @@ def train_cpu_smoke(
     history = {
         "schema_version": "baseline-training-history-v1",
         "seed": seed,
-        "evidence_status": "noncanonical_cpu_smoke",
+        "evidence_status": evidence_status,
         "run_configuration_identity": run_configuration_identity,
         "initial_parameter_identity": initial_parameter_identity,
         "final_parameter_identity": final_parameter_identity,
@@ -445,13 +658,19 @@ def train_cpu_smoke(
         "completed_epochs": len(epoch_history),
         "stopping_reason": stopping_reason,
         "epochs": epoch_history,
+        "compatibility": compatibility,
+        "compatibility_identity": compatibility_identity,
     }
+    history["content_identity"] = _canonical_json_identity(history)
     _write_json(history_path, history)
 
     metadata = {
         **run_configuration,
         "schema_version": "baseline-training-run-v1",
-        "environment": _environment_metadata(),
+        "environment": environment,
+        "configuration_identity": run_configuration_identity,
+        "compatibility": compatibility,
+        "compatibility_identity": compatibility_identity,
         "source_checksums": dict(prepared.source_checksums),
         "identities": {
             **identities,
@@ -469,11 +688,12 @@ def train_cpu_smoke(
         },
         "test_partition_status": "locked_not_accessed",
     }
+    metadata["content_identity"] = _canonical_json_identity(metadata)
     _write_json(metadata_path, metadata)
 
-    return CpuSmokeTrainingResult(
+    return SeedTrainingResult(
         seed=seed,
-        evidence_status="noncanonical_cpu_smoke",
+        evidence_status=evidence_status,
         test_partition_status="locked_not_accessed",
         completed_epochs=len(epoch_history),
         best_epoch=best_epoch,
@@ -487,14 +707,40 @@ def train_cpu_smoke(
     )
 
 
-def _configure_cpu_determinism(seed: int) -> None:
+def _configure_determinism(seed: int, *, device_identifier: str) -> torch.device:
+    global _CUBLAS_CONFIGURED_BEFORE_CUDA
+
+    cuda_initialized = torch.cuda.is_initialized()
+    if (
+        device_identifier == "cuda:0"
+        and cuda_initialized
+        and (
+            not _CUBLAS_CONFIGURED_BEFORE_CUDA
+            or os.environ.get("CUBLAS_WORKSPACE_CONFIG")
+            != _CUBLAS_WORKSPACE_CONFIGURATION
+        )
+    ):
+        raise TrainingContractError(
+            "canonical CUDA execution requires CUBLAS_WORKSPACE_CONFIG before "
+            "CUDA initialization"
+        )
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = _CUBLAS_WORKSPACE_CONFIGURATION
+    if not cuda_initialized:
+        _CUBLAS_CONFIGURED_BEFORE_CUDA = True
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.use_deterministic_algorithms(True)
+    torch.use_deterministic_algorithms(True, warn_only=False)
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.allow_tf32 = False
     torch.backends.cuda.matmul.allow_tf32 = False
+    if device_identifier == "cuda:0":
+        if not torch.cuda.is_available():
+            raise TrainingContractError(
+                "canonical training requires CUDA device cuda:0"
+            )
+        torch.cuda.manual_seed_all(seed)
+    return torch.device(device_identifier)
 
 
 def _validation_mse(
@@ -503,33 +749,71 @@ def _validation_mse(
     trunk_inputs: torch.Tensor,
     targets: torch.Tensor,
     *,
-    seed: int,
-    epoch: int,
+    controlled_fault_stage: str | None = None,
 ) -> tuple[float, np.ndarray]:
     model.eval()
     with torch.no_grad():
         predictions = model(branch_inputs, trunk_inputs).to(dtype=torch.float64)
         targets_float64 = targets.to(dtype=torch.float64)
+    if controlled_fault_stage == "validation_prediction":
+        predictions.view(-1)[0] = float("nan")
     if not bool(torch.all(torch.isfinite(predictions))):
-        raise TrainingContractError(
-            f"seed {seed} produced non-finite validation predictions at epoch {epoch}"
+        raise _NonFiniteTrainingState(
+            "validation_prediction",
+            "at least one validation prediction is non-finite",
         )
     mse = float(torch.mean((predictions - targets_float64) ** 2))
+    if controlled_fault_stage == "validation_mse":
+        mse = math.inf
     if not math.isfinite(mse):
-        raise TrainingContractError(
-            f"seed {seed} produced a non-finite validation MSE at epoch {epoch}"
+        raise _NonFiniteTrainingState(
+            "validation_mse",
+            "the validation MSE is non-finite",
         )
-    return mse, predictions.numpy()
+    return mse, predictions.cpu().numpy()
 
 
-def _model_state_identity(state: Mapping[str, torch.Tensor]) -> str:
+def _torch_state_identity(state: object) -> str:
     digest = sha256()
-    for name in sorted(state):
-        tensor = state[name].detach().cpu().contiguous()
-        digest.update(name.encode("utf-8"))
-        digest.update(str(tensor.dtype).encode("ascii"))
-        digest.update(json.dumps(list(tensor.shape)).encode("ascii"))
-        digest.update(tensor.numpy().tobytes())
+
+    def update(value: object) -> None:
+        if isinstance(value, torch.Tensor):
+            tensor = value.detach().cpu().contiguous()
+            digest.update(b"tensor\0")
+            digest.update(str(tensor.dtype).encode("ascii"))
+            digest.update(json.dumps(list(tensor.shape)).encode("ascii"))
+            digest.update(tensor.numpy().tobytes())
+            return
+        if isinstance(value, dict):
+            digest.update(b"mapping\0")
+            for key in sorted(
+                value,
+                key=lambda item: (type(item).__name__, repr(item)),
+            ):
+                update(key)
+                update(value[key])
+            return
+        if isinstance(value, (list, tuple)):
+            digest.update(type(value).__name__.encode("ascii") + b"\0")
+            for item in value:
+                update(item)
+            return
+        if value is None or isinstance(value, (bool, int, float, str)):
+            digest.update(type(value).__name__.encode("ascii") + b"\0")
+            digest.update(
+                json.dumps(
+                    value,
+                    allow_nan=False,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
+            return
+        raise TrainingContractError(
+            f"unsupported checkpoint state value {type(value).__name__}"
+        )
+
+    update(state)
     return digest.hexdigest()
 
 
@@ -551,19 +835,47 @@ def _write_json(path: Path, payload: object) -> None:
     )
 
 
-def _environment_metadata() -> dict[str, object]:
+def _environment_metadata(device_identifier: str) -> dict[str, object]:
+    if device_identifier == "cuda:0":
+        device_name = torch.cuda.get_device_name(0)
+        try:
+            completed = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=driver_version",
+                    "--format=csv,noheader",
+                    "--id=0",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as error:
+            raise TrainingContractError(
+                "canonical training could not record the NVIDIA driver version"
+            ) from error
+        driver_version: str | None = completed.stdout.strip()
+    else:
+        device_name = platform.processor() or platform.machine()
+        driver_version = None
     return {
-        "device_identifier": "cpu",
-        "device_name": platform.processor() or platform.machine(),
-        "driver_version": None,
+        "device_identifier": device_identifier,
+        "device_name": device_name,
+        "driver_version": driver_version,
         "python_version": platform.python_version(),
         "numpy_version": np.__version__,
         "pytorch_version": str(torch.__version__),
+        "pytorch_build": str(torch.__version__),
         "pytorch_cuda_build": torch.version.cuda,
+        "cuda_version": torch.version.cuda,
         "cudnn_version": torch.backends.cudnn.version(),
         "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+        "deterministic_algorithms_warn_only": (
+            torch.is_deterministic_algorithms_warn_only_enabled()
+        ),
         "cudnn_benchmark": torch.backends.cudnn.benchmark,
         "cudnn_tensorfloat32": torch.backends.cudnn.allow_tf32,
         "matmul_tensorfloat32": torch.backends.cuda.matmul.allow_tf32,
+        "automatic_mixed_precision": False,
         "cublas_workspace_configuration": os.environ.get("CUBLAS_WORKSPACE_CONFIG"),
     }

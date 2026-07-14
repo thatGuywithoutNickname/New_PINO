@@ -10,9 +10,10 @@ import numpy as np
 import pytest
 import torch
 
-from new_pino import BaselineLifecycle
-from new_pino.preparation import PreparedPartition
-from test_source_preflight import synthetic_repository
+import new_pino.training as training_module
+from new_pino import BaselineLifecycle, TrainingContractError
+from new_pino.preparation import PreparedPartition, _partition_content_identity
+from test_source_preflight import canonical_identity, synthetic_repository
 
 
 class _TestLockedPartitions(Mapping[str, PreparedPartition]):
@@ -98,7 +99,17 @@ def test_cpu_smoke_training_retains_the_best_validation_checkpoint(
         "weight_decay": 0.0,
     }
     canonical = metadata["canonical_configuration"]
+    assert canonical["backend"] == "cuda:0"
+    assert canonical["seeds"] == [0, 1, 2, 3, 4]
     assert canonical["max_epochs"] == 3000
+    assert canonical["deterministic_execution"] == {
+        "algorithms": "strict",
+        "cudnn_benchmark": False,
+        "automatic_mixed_precision": False,
+        "tensorfloat32": False,
+        "cublas_workspace_configuration": ":4096:8",
+        "cublas_configuration_timing": "before_cuda_initialization",
+    }
     assert canonical["early_stopping"] == {
         "meaningful_progress_relative_threshold": 1e-3,
         "patience_epochs": 300,
@@ -139,10 +150,47 @@ def test_cpu_smoke_training_retains_the_best_validation_checkpoint(
         metadata["selected_checkpoint"]["validation_mse"] == result.best_validation_mse
     )
     assert metadata["environment"]["device_identifier"] == "cpu"
+    assert metadata["environment"]["device_name"]
+    assert metadata["environment"]["driver_version"] is None
+    assert metadata["environment"]["python_version"]
+    assert metadata["environment"]["numpy_version"] == np.__version__
+    assert metadata["environment"]["pytorch_build"] == str(torch.__version__)
+    assert metadata["environment"]["cuda_version"] == torch.version.cuda
     assert metadata["environment"]["deterministic_algorithms"] is True
+    assert metadata["environment"]["deterministic_algorithms_warn_only"] is False
     assert metadata["environment"]["cudnn_benchmark"] is False
+    assert metadata["environment"]["cudnn_tensorfloat32"] is False
+    assert metadata["environment"]["matmul_tensorfloat32"] is False
+    assert metadata["environment"]["automatic_mixed_precision"] is False
+    assert (
+        metadata["environment"]["cublas_workspace_configuration"] == ":4096:8"
+    )
+    assert metadata["configuration_identity"] == result.run_configuration_identity
+
+    compatibility = metadata["compatibility"]
+    assert compatibility == {
+        "source_identity": prepared.preprocessing.source_identity,
+        "split_identity": prepared.preprocessing.split_identity,
+        "preprocessing_identity": prepared.preprocessing.content_identity,
+        "configuration_identity": result.run_configuration_identity,
+        "precision_identity": canonical_identity(metadata["precision"]),
+        "backend_identity": canonical_identity(metadata["environment"]),
+        "content_identities": {
+            "training_partition": prepared.partitions["training"].content_identity,
+            "validation_partition": prepared.partitions["validation"].content_identity,
+        },
+    }
+    assert metadata["compatibility_identity"] == canonical_identity(compatibility)
+    metadata_without_identity = dict(metadata)
+    metadata_content_identity = metadata_without_identity.pop("content_identity")
+    assert metadata_content_identity == canonical_identity(metadata_without_identity)
 
     history = json.loads(result.history_path.read_text(encoding="utf-8"))
+    assert history["compatibility"] == compatibility
+    assert history["compatibility_identity"] == metadata["compatibility_identity"]
+    history_without_identity = dict(history)
+    history_content_identity = history_without_identity.pop("content_identity")
+    assert history_content_identity == canonical_identity(history_without_identity)
     epochs = history["epochs"]
     assert len(epochs) == 3
     assert history["stopping_reason"] == "smoke_epoch_ceiling"
@@ -186,6 +234,11 @@ def test_cpu_smoke_training_retains_the_best_validation_checkpoint(
         weights_only=True,
     )
     assert checkpoint["checkpoint_identity"] == result.checkpoint_identity
+    assert checkpoint["compatibility"] == compatibility
+    assert checkpoint["compatibility_identity"] == metadata["compatibility_identity"]
+    assert checkpoint["content_identity"] == checkpoint["checkpoint_identity"]
+    assert checkpoint["model_state_identity"] == history["selected_parameter_identity"]
+    assert len(checkpoint["optimizer_state_identity"]) == 64
     assert checkpoint["seed"] == 0
     assert checkpoint["epoch"] == result.best_epoch
     assert checkpoint["run_configuration_identity"] == result.run_configuration_identity
@@ -246,6 +299,110 @@ def test_cpu_smoke_shuffle_and_training_are_repeatable_for_one_seed(
     )
 
 
+def test_canonical_seed_execution_rejects_an_undeclared_seed_before_cuda_access(
+    tmp_path: Path,
+) -> None:
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
+
+    with pytest.raises(
+        TrainingContractError,
+        match="canonical training seed must be one of 0, 1, 2, 3, or 4",
+    ):
+        BaselineLifecycle.train(
+            prepared,
+            seed=5,
+            artifact_directory=tmp_path / "canonical",
+        )
+
+
+def test_canonical_seed_execution_rejects_cublas_configuration_set_after_cuda(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    monkeypatch.setattr(training_module, "_CUBLAS_CONFIGURED_BEFORE_CUDA", False)
+    monkeypatch.setattr(torch.cuda, "is_initialized", lambda: True)
+
+    with pytest.raises(
+        TrainingContractError,
+        match="requires CUBLAS_WORKSPACE_CONFIG before CUDA initialization",
+    ):
+        BaselineLifecycle.train(
+            prepared,
+            seed=0,
+            artifact_directory=tmp_path / "late-cublas",
+        )
+
+
+def test_seed_execution_rejects_an_incompatible_prepared_partition_binding(
+    tmp_path: Path,
+) -> None:
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
+    incompatible_training = replace(
+        prepared.partitions["training"],
+        split_identity="different-split",
+    )
+    incompatible = replace(
+        prepared,
+        partitions=MappingProxyType(
+            {
+                **prepared.partitions,
+                "training": incompatible_training,
+            }
+        ),
+    )
+    artifact_directory = tmp_path / "incompatible"
+
+    with pytest.raises(
+        TrainingContractError,
+        match="training partition split identity is incompatible",
+    ):
+        BaselineLifecycle.train(
+            incompatible,
+            seed=0,
+            artifact_directory=artifact_directory,
+            smoke_max_epochs=1,
+        )
+
+    assert not artifact_directory.exists()
+
+
+def test_cpu_smoke_rejects_stale_partition_content_identity(
+    tmp_path: Path,
+) -> None:
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
+    changed_inputs = np.array(
+        prepared.partitions["training"].branch_inputs,
+        copy=True,
+    )
+    changed_inputs[0, 0] += 1.0
+    stale_training = replace(
+        prepared.partitions["training"],
+        branch_inputs=changed_inputs,
+    )
+    stale = replace(
+        prepared,
+        partitions=MappingProxyType(
+            {
+                **prepared.partitions,
+                "training": stale_training,
+            }
+        ),
+    )
+
+    with pytest.raises(
+        TrainingContractError,
+        match="training partition content identity is incompatible",
+    ):
+        BaselineLifecycle.train(
+            stale,
+            seed=0,
+            artifact_directory=tmp_path / "stale-content",
+            smoke_max_epochs=1,
+        )
+
+
 def test_cpu_smoke_validation_control_reduces_lr_and_stops_at_300_bad_epochs(
     tmp_path: Path,
 ) -> None:
@@ -257,12 +414,20 @@ def test_cpu_smoke_validation_control_reduces_lr_and_stops_at_300_bad_epochs(
         trunk_inputs=np.zeros((48, 2), dtype=np.float32),
         raw_aeps_fields=np.ones((1, 48), dtype=np.float32),
     )
+    training = replace(
+        training,
+        content_identity=_partition_content_identity(training),
+    )
     validation = replace(
         prepared.partitions["validation"],
         source_rows=(prepared.partitions["validation"].source_rows[0],),
         branch_inputs=np.zeros((1, 5), dtype=np.float32),
         trunk_inputs=np.zeros((48, 2), dtype=np.float32),
         raw_aeps_fields=np.zeros((1, 48), dtype=np.float32),
+    )
+    validation = replace(
+        validation,
+        content_identity=_partition_content_identity(validation),
     )
     controlled = replace(
         prepared,
@@ -305,3 +470,63 @@ def test_cpu_smoke_validation_control_reduces_lr_and_stops_at_300_bad_epochs(
         rel=0.0,
         abs=1e-15,
     )
+
+
+@pytest.mark.parametrize(
+    ("failed_stage", "expected_attempted_updates", "expected_completed_updates"),
+    [
+        ("training_loss", 0, 0),
+        ("training_gradient", 0, 0),
+        ("training_parameter", 1, 0),
+        ("validation_prediction", 8, 8),
+        ("validation_mse", 8, 8),
+    ],
+)
+def test_cpu_smoke_controlled_numerical_faults_abort_and_record_the_stage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failed_stage: str,
+    expected_attempted_updates: int,
+    expected_completed_updates: int,
+) -> None:
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
+    prepared_with_locked_test = replace(
+        prepared,
+        partitions=_TestLockedPartitions(prepared.partitions),
+    )
+    artifact_directory = tmp_path / failed_stage
+    monkeypatch.setattr(training_module, "_CONTROLLED_FAULT_STAGE", failed_stage)
+
+    with pytest.raises(TrainingContractError) as raised:
+        BaselineLifecycle.train(
+            prepared_with_locked_test,
+            seed=2,
+            artifact_directory=artifact_directory,
+            smoke_max_epochs=2,
+        )
+
+    error = raised.value
+    assert error.failed_stage == failed_stage
+    assert error.failure_artifact_path is not None
+    failure_artifact_path = error.failure_artifact_path
+    assert failure_artifact_path.is_file()
+    assert list(artifact_directory.iterdir()) == [failure_artifact_path]
+
+    failure = json.loads(failure_artifact_path.read_text(encoding="utf-8"))
+    assert failure["schema_version"] == "baseline-training-failure-v1"
+    assert failure["status"] == "failed"
+    assert failure["canonical"] is False
+    assert failure["evidence_status"] == "noncanonical_cpu_smoke"
+    assert failure["seed"] == 2
+    assert failure["failed_stage"] == failed_stage
+    assert failure["epoch"] == 1
+    assert failure["optimizer_updates_attempted"] == expected_attempted_updates
+    assert failure["optimizer_updates_completed"] == expected_completed_updates
+    assert failure["test_partition_status"] == "locked_not_accessed"
+    assert failure["run_configuration"]["controlled_fault_stage"] == failed_stage
+    assert failure["compatibility_identity"] == canonical_identity(
+        failure["compatibility"]
+    )
+    payload_without_identity = dict(failure)
+    content_identity = payload_without_identity.pop("content_identity")
+    assert content_identity == canonical_identity(payload_without_identity)

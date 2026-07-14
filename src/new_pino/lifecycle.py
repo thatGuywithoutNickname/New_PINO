@@ -33,11 +33,11 @@ from .reporting import (
     _evaluate_fixture,
 )
 from .training import (
-    CpuSmokeTrainingResult,
+    SeedTrainingResult,
     _BRANCH_WIDTHS,
     _EXPECTED_ARCHITECTURE,
     _TRUNK_WIDTHS,
-    train_cpu_smoke,
+    train_seed,
 )
 
 
@@ -182,11 +182,11 @@ class BaselineLifecycle:
         *,
         seed: int,
         artifact_directory: str | Path,
-        smoke_max_epochs: int,
-    ) -> CpuSmokeTrainingResult:
-        """Run one explicit, noncanonical DeepONet CPU smoke seed."""
+        smoke_max_epochs: int | None = None,
+    ) -> SeedTrainingResult:
+        """Run one canonical GPU seed or an explicit CPU smoke seed."""
 
-        return train_cpu_smoke(
+        return train_seed(
             prepared,
             seed=seed,
             artifact_directory=artifact_directory,
