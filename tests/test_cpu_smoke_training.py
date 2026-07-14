@@ -4,6 +4,7 @@ from collections.abc import Iterator, Mapping
 from dataclasses import replace
 import json
 from pathlib import Path
+import shutil
 from types import MappingProxyType
 
 import numpy as np
@@ -30,6 +31,13 @@ class _TestLockedPartitions(Mapping[str, PreparedPartition]):
 
     def __len__(self) -> int:
         return len(self._partitions)
+
+
+def run_event_names(path: Path) -> list[str]:
+    return [
+        json.loads(line)["event"]
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
 
 
 def test_cpu_smoke_training_retains_the_best_validation_checkpoint(
@@ -168,6 +176,18 @@ def test_cpu_smoke_training_retains_the_best_validation_checkpoint(
     assert metadata["configuration_identity"] == result.run_configuration_identity
 
     compatibility = metadata["compatibility"]
+    software_identity = canonical_identity(
+        {
+            name: metadata["environment"][name]
+            for name in (
+                "python_version",
+                "numpy_version",
+                "pytorch_build",
+                "pytorch_cuda_build",
+                "cudnn_version",
+            )
+        }
+    )
     assert compatibility == {
         "source_identity": prepared.preprocessing.source_identity,
         "split_identity": prepared.preprocessing.split_identity,
@@ -175,6 +195,7 @@ def test_cpu_smoke_training_retains_the_best_validation_checkpoint(
         "configuration_identity": result.run_configuration_identity,
         "precision_identity": canonical_identity(metadata["precision"]),
         "backend_identity": canonical_identity(metadata["environment"]),
+        "software_identity": software_identity,
         "content_identities": {
             "training_partition": prepared.partitions["training"].content_identity,
             "validation_partition": prepared.partitions["validation"].content_identity,
@@ -297,6 +318,362 @@ def test_cpu_smoke_shuffle_and_training_are_repeatable_for_one_seed(
         np.load(first.validation_predictions_path),
         np.load(second.validation_predictions_path),
     )
+
+
+def test_cpu_smoke_resume_matches_an_uninterrupted_completed_epoch_trajectory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
+    uninterrupted = BaselineLifecycle.train(
+        prepared,
+        seed=3,
+        artifact_directory=tmp_path / "uninterrupted",
+        smoke_max_epochs=4,
+    )
+
+    interrupted_directory = tmp_path / "interrupted"
+    monkeypatch.setattr(training_module, "_CONTROLLED_INTERRUPTION_POINT", (2, None))
+    with pytest.raises(KeyboardInterrupt):
+        BaselineLifecycle.train(
+            prepared,
+            seed=3,
+            artifact_directory=interrupted_directory,
+            smoke_max_epochs=4,
+        )
+
+    monkeypatch.setattr(training_module, "_CONTROLLED_INTERRUPTION_POINT", None)
+    recovery_snapshot = next(interrupted_directory.glob("*_recovery.pt"))
+    resumed = BaselineLifecycle.train(
+        prepared,
+        seed=3,
+        artifact_directory=interrupted_directory,
+        smoke_max_epochs=4,
+        recovery_snapshot=recovery_snapshot,
+    )
+
+    uninterrupted_history = json.loads(
+        uninterrupted.history_path.read_text(encoding="utf-8")
+    )
+    resumed_history = json.loads(resumed.history_path.read_text(encoding="utf-8"))
+    assert resumed_history == uninterrupted_history
+    assert resumed.checkpoint_identity == uninterrupted.checkpoint_identity
+    np.testing.assert_array_equal(
+        np.load(resumed.validation_predictions_path),
+        np.load(uninterrupted.validation_predictions_path),
+    )
+    assert list(interrupted_directory.glob("*_checkpoint_*.pt")) == [
+        resumed.checkpoint_path
+    ]
+    assert run_event_names(resumed.run_history_path) == [
+        "run_started",
+        "interruption",
+        "resume_attempt",
+        "resume_accepted",
+        "run_completed",
+    ]
+    snapshot = torch.load(
+        resumed.recovery_snapshot_path,
+        map_location="cpu",
+        weights_only=True,
+    )
+    assert snapshot["completed_epoch"] == 4
+    assert snapshot["best_checkpoint_identity"] == resumed.checkpoint_identity
+    assert snapshot["best_checkpoint_mse"] == resumed.best_validation_mse
+    assert snapshot["best_meaningful_mse"] <= snapshot["epoch_history"][0][
+        "validation_mse"
+    ]
+    assert snapshot["epochs_without_meaningful_progress"] >= 0
+    assert snapshot["scheduler_state"]["last_epoch"] == 4
+    assert snapshot["model_state"]
+    assert snapshot["optimizer_state"]["state"]
+    assert snapshot["python_random_state"]
+    assert snapshot["numpy_random_state"]
+    assert snapshot["torch_cpu_random_state"].dtype == torch.uint8
+    assert snapshot["torch_cuda_random_states"] == []
+    assert snapshot["loader_generator_state"].dtype == torch.uint8
+    assert set(snapshot["compatibility"]) == {
+        "source_identity",
+        "split_identity",
+        "preprocessing_identity",
+        "configuration_identity",
+        "precision_identity",
+        "backend_identity",
+        "software_identity",
+        "content_identities",
+    }
+    assert resumed.recovery_snapshot_path != resumed.checkpoint_path
+    assert not list(interrupted_directory.glob("*.tmp"))
+
+
+def test_recovery_keeps_the_preceding_checkpoint_during_atomic_rollover(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
+    uninterrupted = BaselineLifecycle.train(
+        prepared,
+        seed=3,
+        artifact_directory=tmp_path / "uninterrupted-rollover",
+        smoke_max_epochs=4,
+    )
+
+    interrupted_directory = tmp_path / "interrupted-rollover"
+    monkeypatch.setattr(training_module, "_CONTROLLED_INTERRUPTION_POINT", (2, 0))
+    with pytest.raises(KeyboardInterrupt):
+        BaselineLifecycle.train(
+            prepared,
+            seed=3,
+            artifact_directory=interrupted_directory,
+            smoke_max_epochs=4,
+        )
+
+    recovery_snapshot = next(interrupted_directory.glob("*_recovery.pt"))
+    snapshot = torch.load(recovery_snapshot, map_location="cpu", weights_only=True)
+    assert snapshot["completed_epoch"] == 1
+    referenced_checkpoints = list(
+        interrupted_directory.glob(
+            f"*_checkpoint_{snapshot['best_checkpoint_identity']}.pt"
+        )
+    )
+    assert len(referenced_checkpoints) == 1
+    assert len(list(interrupted_directory.glob("*_checkpoint_*.pt"))) == 2
+
+    monkeypatch.setattr(training_module, "_CONTROLLED_INTERRUPTION_POINT", None)
+    resumed = BaselineLifecycle.train(
+        prepared,
+        seed=3,
+        artifact_directory=interrupted_directory,
+        smoke_max_epochs=4,
+        recovery_snapshot=recovery_snapshot,
+    )
+
+    assert json.loads(resumed.history_path.read_text(encoding="utf-8")) == json.loads(
+        uninterrupted.history_path.read_text(encoding="utf-8")
+    )
+    assert resumed.checkpoint_identity == uninterrupted.checkpoint_identity
+    np.testing.assert_array_equal(
+        np.load(resumed.validation_predictions_path),
+        np.load(uninterrupted.validation_predictions_path),
+    )
+    assert list(interrupted_directory.glob("*_checkpoint_*.pt")) == [
+        resumed.checkpoint_path
+    ]
+
+
+def test_cpu_smoke_resume_discards_a_partial_epoch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
+    uninterrupted = BaselineLifecycle.train(
+        prepared,
+        seed=2,
+        artifact_directory=tmp_path / "uninterrupted-partial",
+        smoke_max_epochs=3,
+    )
+
+    interrupted_directory = tmp_path / "interrupted-partial"
+    monkeypatch.setattr(training_module, "_CONTROLLED_INTERRUPTION_POINT", (2, 1))
+    with pytest.raises(KeyboardInterrupt):
+        BaselineLifecycle.train(
+            prepared,
+            seed=2,
+            artifact_directory=interrupted_directory,
+            smoke_max_epochs=3,
+        )
+    recovery_snapshot = next(interrupted_directory.glob("*_recovery.pt"))
+    snapshot = torch.load(recovery_snapshot, map_location="cpu", weights_only=True)
+    assert snapshot["completed_epoch"] == 1
+
+    monkeypatch.setattr(training_module, "_CONTROLLED_INTERRUPTION_POINT", None)
+    resumed = BaselineLifecycle.train(
+        prepared,
+        seed=2,
+        artifact_directory=interrupted_directory,
+        smoke_max_epochs=3,
+        recovery_snapshot=recovery_snapshot,
+    )
+
+    assert json.loads(resumed.history_path.read_text(encoding="utf-8")) == json.loads(
+        uninterrupted.history_path.read_text(encoding="utf-8")
+    )
+    assert run_event_names(resumed.run_history_path) == [
+        "run_started",
+        "interruption",
+        "discarded_partial_epoch",
+        "resume_attempt",
+        "resume_accepted",
+        "run_completed",
+    ]
+
+
+def test_cpu_smoke_can_restart_when_no_epoch_completed_before_interruption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
+    artifact_directory = tmp_path / "first-epoch-interruption"
+    monkeypatch.setattr(training_module, "_CONTROLLED_INTERRUPTION_POINT", (1, 1))
+    with pytest.raises(KeyboardInterrupt):
+        BaselineLifecycle.train(
+            prepared,
+            seed=0,
+            artifact_directory=artifact_directory,
+            smoke_max_epochs=1,
+        )
+    assert not list(artifact_directory.glob("*_recovery.pt"))
+
+    monkeypatch.setattr(training_module, "_CONTROLLED_INTERRUPTION_POINT", None)
+    restarted = BaselineLifecycle.train(
+        prepared,
+        seed=0,
+        artifact_directory=artifact_directory,
+        smoke_max_epochs=1,
+        restart=True,
+    )
+    assert run_event_names(restarted.run_history_path) == [
+        "run_started",
+        "interruption",
+        "discarded_partial_epoch",
+        "restart",
+        "run_started",
+        "run_completed",
+    ]
+
+
+def test_cpu_smoke_rejects_invalid_recovery_and_preserves_restart_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
+    artifact_directory = tmp_path / "recovery-rejections"
+    monkeypatch.setattr(training_module, "_CONTROLLED_INTERRUPTION_POINT", (1, None))
+    with pytest.raises(KeyboardInterrupt):
+        BaselineLifecycle.train(
+            prepared,
+            seed=1,
+            artifact_directory=artifact_directory,
+            smoke_max_epochs=3,
+        )
+    monkeypatch.setattr(training_module, "_CONTROLLED_INTERRUPTION_POINT", None)
+    valid_snapshot = next(artifact_directory.glob("*_recovery.pt"))
+    best_checkpoint = next(artifact_directory.glob("*_checkpoint_*.pt"))
+
+    corrupt_snapshot = artifact_directory / "corrupt_recovery.pt"
+    corrupt_snapshot.write_bytes(b"not a recovery snapshot")
+    with pytest.raises(TrainingContractError, match="recovery snapshot is corrupt"):
+        BaselineLifecycle.train(
+            prepared,
+            seed=1,
+            artifact_directory=artifact_directory,
+            smoke_max_epochs=3,
+            recovery_snapshot=corrupt_snapshot,
+        )
+
+    incomplete_snapshot = artifact_directory / "incomplete_recovery.pt"
+    torch.save({"schema_version": "baseline-recovery-v1"}, incomplete_snapshot)
+    with pytest.raises(TrainingContractError, match="recovery snapshot is incomplete"):
+        BaselineLifecycle.train(
+            prepared,
+            seed=1,
+            artifact_directory=artifact_directory,
+            smoke_max_epochs=3,
+            recovery_snapshot=incomplete_snapshot,
+        )
+
+    weights_only_snapshot = artifact_directory / "weights_only_recovery.pt"
+    shutil.copy2(best_checkpoint, weights_only_snapshot)
+    with pytest.raises(TrainingContractError, match="recovery snapshot is incomplete"):
+        BaselineLifecycle.train(
+            prepared,
+            seed=1,
+            artifact_directory=artifact_directory,
+            smoke_max_epochs=3,
+            recovery_snapshot=weights_only_snapshot,
+        )
+
+    checkpoint_backup = artifact_directory / "best-checkpoint-backup.bin"
+    shutil.copy2(best_checkpoint, checkpoint_backup)
+    stale_checkpoint = torch.load(
+        best_checkpoint,
+        map_location="cpu",
+        weights_only=True,
+    )
+    first_tensor = next(iter(stale_checkpoint["model_state"].values()))
+    first_tensor.view(-1)[0] += 1.0
+    torch.save(stale_checkpoint, best_checkpoint)
+    with pytest.raises(
+        TrainingContractError,
+        match="best checkpoint does not match the recovery snapshot",
+    ):
+        BaselineLifecycle.train(
+            prepared,
+            seed=1,
+            artifact_directory=artifact_directory,
+            smoke_max_epochs=3,
+            recovery_snapshot=valid_snapshot,
+        )
+    shutil.copy2(checkpoint_backup, best_checkpoint)
+
+    with pytest.raises(
+        TrainingContractError,
+        match="recovery snapshot compatibility bindings do not match",
+    ):
+        BaselineLifecycle.train(
+            prepared,
+            seed=1,
+            artifact_directory=artifact_directory,
+            smoke_max_epochs=4,
+            recovery_snapshot=valid_snapshot,
+        )
+
+    changed_repository = synthetic_repository(tmp_path / "changed-source")
+    changed_training_path = changed_repository / "data" / "combined_training_data.csv"
+    changed_training_path.write_text(
+        changed_training_path.read_text(encoding="utf-8").replace(
+            "1e-06",
+            "1.1e-06",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    changed_prepared = BaselineLifecycle.prepare(changed_repository)
+    with pytest.raises(
+        TrainingContractError,
+        match="recovery snapshot compatibility bindings do not match",
+    ):
+        BaselineLifecycle.train(
+            changed_prepared,
+            seed=1,
+            artifact_directory=artifact_directory,
+            smoke_max_epochs=3,
+            recovery_snapshot=valid_snapshot,
+        )
+
+    restarted = BaselineLifecycle.train(
+        prepared,
+        seed=1,
+        artifact_directory=artifact_directory,
+        smoke_max_epochs=3,
+        recovery_snapshot=valid_snapshot,
+        restart=True,
+    )
+    assert run_event_names(restarted.run_history_path) == [
+        "run_started",
+        "interruption",
+        "resume_attempt",
+        "resume_rejected",
+        "resume_attempt",
+        "resume_rejected",
+        "resume_attempt",
+        "resume_rejected",
+        "resume_attempt",
+        "resume_rejected",
+        "restart",
+        "run_started",
+        "run_completed",
+    ]
 
 
 def test_seed_execution_disables_an_ambient_autocast_context(
@@ -547,7 +924,15 @@ def test_cpu_smoke_controlled_numerical_faults_abort_and_record_the_stage(
     assert error.failure_artifact_path is not None
     failure_artifact_path = error.failure_artifact_path
     assert failure_artifact_path.is_file()
-    assert list(artifact_directory.iterdir()) == [failure_artifact_path]
+    run_history_path = next(artifact_directory.glob("*_run_history.jsonl"))
+    assert set(artifact_directory.iterdir()) == {
+        failure_artifact_path,
+        run_history_path,
+    }
+    assert run_event_names(run_history_path) == [
+        "run_started",
+        "numerical_failure",
+    ]
 
     failure = json.loads(failure_artifact_path.read_text(encoding="utf-8"))
     assert failure["schema_version"] == "baseline-training-failure-v1"
@@ -567,3 +952,41 @@ def test_cpu_smoke_controlled_numerical_faults_abort_and_record_the_stage(
     payload_without_identity = dict(failure)
     content_identity = payload_without_identity.pop("content_identity")
     assert content_identity == canonical_identity(payload_without_identity)
+
+
+def test_non_finite_failed_trajectory_cannot_resume_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
+    artifact_directory = tmp_path / "failed-resume"
+    monkeypatch.setattr(training_module, "_CONTROLLED_FAULT_STAGE", "training_loss")
+    monkeypatch.setattr(training_module, "_CONTROLLED_FAULT_EPOCH", 2)
+
+    with pytest.raises(TrainingContractError, match="failed at training_loss"):
+        BaselineLifecycle.train(
+            prepared,
+            seed=2,
+            artifact_directory=artifact_directory,
+            smoke_max_epochs=3,
+        )
+
+    recovery_snapshot = next(artifact_directory.glob("*_recovery.pt"))
+    with pytest.raises(
+        TrainingContractError,
+        match="non-finite failed trajectory cannot resume",
+    ):
+        BaselineLifecycle.train(
+            prepared,
+            seed=2,
+            artifact_directory=artifact_directory,
+            smoke_max_epochs=3,
+            recovery_snapshot=recovery_snapshot,
+        )
+
+    assert run_event_names(next(artifact_directory.glob("*_run_history.jsonl"))) == [
+        "run_started",
+        "numerical_failure",
+        "resume_attempt",
+        "resume_rejected",
+    ]

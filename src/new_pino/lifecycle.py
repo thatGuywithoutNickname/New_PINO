@@ -188,6 +188,8 @@ class BaselineLifecycle:
         seed: int,
         artifact_directory: str | Path,
         smoke_max_epochs: int | None = None,
+        recovery_snapshot: str | Path | None = None,
+        restart: bool = False,
     ) -> SeedTrainingResult:
         """Run one canonical GPU seed or an explicit CPU smoke seed."""
 
@@ -196,6 +198,8 @@ class BaselineLifecycle:
             seed=seed,
             artifact_directory=artifact_directory,
             smoke_max_epochs=smoke_max_epochs,
+            recovery_snapshot=recovery_snapshot,
+            restart=restart,
         )
 
     @classmethod
