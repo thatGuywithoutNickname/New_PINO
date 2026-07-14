@@ -32,20 +32,15 @@ from .reporting import (
     EvaluationReport,
     _evaluate_fixture,
 )
+from .training import (
+    CpuSmokeTrainingResult,
+    _BRANCH_WIDTHS,
+    _EXPECTED_ARCHITECTURE,
+    _TRUNK_WIDTHS,
+    train_cpu_smoke,
+)
 
 
-_BRANCH_WIDTHS = (5, 32, 64, 32, 16)
-_TRUNK_WIDTHS = (2, 32, 64, 32, 16)
-_EXPECTED_ARCHITECTURE: Mapping[str, object] = {
-    "kind": "dot_product_deeponet",
-    "branch_widths": list(_BRANCH_WIDTHS),
-    "trunk_widths": list(_TRUNK_WIDTHS),
-    "hidden_activation": "tanh",
-    "latent_activation": "linear",
-    "fusion": "dot_product_plus_scalar_bias",
-    "output_repair": "none",
-    "trainable_parameter_count": 9729,
-}
 class PredictionContractError(ValueError):
     """A prediction request or bound artifact violates the public contract."""
 
@@ -179,6 +174,24 @@ class BaselineLifecycle:
         """Validate and bind the repository-local canonical baseline sources."""
 
         return prepare_sources(repository_root, artifact_path=artifact_path)
+
+    @classmethod
+    def train(
+        cls,
+        prepared: PreparedDataArtifact,
+        *,
+        seed: int,
+        artifact_directory: str | Path,
+        smoke_max_epochs: int,
+    ) -> CpuSmokeTrainingResult:
+        """Run one explicit, noncanonical DeepONet CPU smoke seed."""
+
+        return train_cpu_smoke(
+            prepared,
+            seed=seed,
+            artifact_directory=artifact_directory,
+            smoke_max_epochs=smoke_max_epochs,
+        )
 
     @classmethod
     def from_package(

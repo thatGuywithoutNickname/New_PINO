@@ -26,10 +26,12 @@ from .reporting import (
     MeanAndSampleStandardDeviation,
     SeedMetricReport,
 )
+from .training import CpuSmokeTrainingResult, TrainingContractError
 
 __all__ = [
     "BaselineLifecycle",
     "CaseMetricReport",
+    "CpuSmokeTrainingResult",
     "EvaluationContractError",
     "EvaluationReport",
     "MeanAndSampleStandardDeviation",
@@ -48,4 +50,5 @@ __all__ = [
     "SourcePreflightError",
     "SourcePreflightViolation",
     "SplitManifestError",
+    "TrainingContractError",
 ]
