@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from hashlib import sha256
 import json
@@ -268,6 +269,7 @@ def train_cpu_smoke(
     best_meaningful_mse = math.inf
     best_epoch = 0
     best_model_state: dict[str, torch.Tensor] | None = None
+    best_optimizer_state: dict[str, object] | None = None
     epochs_without_meaningful_progress = 0
     optimizer_steps = 0
     epoch_history: list[dict[str, object]] = []
@@ -328,6 +330,7 @@ def train_cpu_smoke(
                 name: tensor.detach().clone()
                 for name, tensor in model.state_dict().items()
             }
+            best_optimizer_state = deepcopy(optimizer.state_dict())
 
         meaningful_progress = validation_mse < best_meaningful_mse * (
             1.0 - _MEANINGFUL_PROGRESS_THRESHOLD
@@ -372,7 +375,7 @@ def train_cpu_smoke(
             stopping_reason = "canonical_early_stopping"
             break
 
-    if best_model_state is None:
+    if best_model_state is None or best_optimizer_state is None:
         raise TrainingContractError("training completed without a finite checkpoint")
     final_parameter_identity = _model_state_identity(model.state_dict())
     model.load_state_dict(best_model_state)
@@ -424,6 +427,7 @@ def train_cpu_smoke(
             "unit_schema_identity": preprocessing.unit_schema_identity,
             "architecture": dict(_EXPECTED_ARCHITECTURE),
             "model_state": best_model_state,
+            "optimizer_state": best_optimizer_state,
         },
         checkpoint_path,
     )

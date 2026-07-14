@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator, Mapping
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -10,28 +11,33 @@ import pytest
 import torch
 
 from new_pino import BaselineLifecycle
+from new_pino.preparation import PreparedPartition
 from test_source_preflight import synthetic_repository
+
+
+class _TestLockedPartitions(Mapping[str, PreparedPartition]):
+    def __init__(self, partitions: Mapping[str, PreparedPartition]) -> None:
+        self._partitions = partitions
+
+    def __getitem__(self, name: str) -> PreparedPartition:
+        if name == "test":
+            raise AssertionError("training accessed the locked test partition")
+        return self._partitions[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._partitions)
+
+    def __len__(self) -> int:
+        return len(self._partitions)
 
 
 def test_cpu_smoke_training_retains_the_best_validation_checkpoint(
     tmp_path: Path,
 ) -> None:
     prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
-    inaccessible_test = replace(
-        prepared.partitions["test"],
-        raw_aeps_fields=np.full_like(
-            prepared.partitions["test"].raw_aeps_fields,
-            np.nan,
-        ),
-    )
     prepared_with_locked_test = replace(
         prepared,
-        partitions=MappingProxyType(
-            {
-                **prepared.partitions,
-                "test": inaccessible_test,
-            }
-        ),
+        partitions=_TestLockedPartitions(prepared.partitions),
     )
 
     result = BaselineLifecycle.train(
@@ -190,6 +196,26 @@ def test_cpu_smoke_training_retains_the_best_validation_checkpoint(
     assert all(
         tensor.dtype == torch.float32 for tensor in checkpoint["model_state"].values()
     )
+    optimizer_state = checkpoint["optimizer_state"]
+    optimizer_group = optimizer_state["param_groups"][0]
+    assert optimizer_group["betas"] == (0.9, 0.999)
+    assert optimizer_group["eps"] == 1e-8
+    assert optimizer_group["weight_decay"] == 0.0
+    expected_optimizer_steps = sum(
+        len(epoch["batch_sizes"]) for epoch in epochs[: result.best_epoch]
+    )
+    assert {
+        int(parameter_state["step"].item())
+        for parameter_state in optimizer_state["state"].values()
+    } == {expected_optimizer_steps}
+    optimizer_tensors = [
+        value
+        for parameter_state in optimizer_state["state"].values()
+        for value in parameter_state.values()
+        if isinstance(value, torch.Tensor)
+    ]
+    assert optimizer_tensors
+    assert all(tensor.dtype == torch.float32 for tensor in optimizer_tensors)
 
 
 def test_cpu_smoke_shuffle_and_training_are_repeatable_for_one_seed(
