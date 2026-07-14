@@ -13,7 +13,11 @@ import torch
 
 import new_pino.training as training_module
 from new_pino import BaselineLifecycle, TrainingContractError
-from new_pino.preparation import PreparedPartition, _partition_content_identity
+from new_pino.preparation import (
+    PreparedDataArtifact,
+    PreparedPartition,
+    _partition_content_identity,
+)
 from test_source_preflight import canonical_identity, synthetic_repository
 
 
@@ -37,6 +41,59 @@ def run_event_names(path: Path) -> list[str]:
     return [
         json.loads(line)["event"]
         for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+
+
+def _early_stopping_artifact(tmp_path: Path) -> PreparedDataArtifact:
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
+    training = replace(
+        prepared.partitions["training"],
+        source_rows=(prepared.partitions["training"].source_rows[0],),
+        branch_inputs=np.zeros((1, 5), dtype=np.float32),
+        trunk_inputs=np.zeros((48, 2), dtype=np.float32),
+        raw_aeps_fields=np.ones((1, 48), dtype=np.float32),
+    )
+    training = replace(
+        training,
+        content_identity=_partition_content_identity(training),
+    )
+    validation = replace(
+        prepared.partitions["validation"],
+        source_rows=(prepared.partitions["validation"].source_rows[0],),
+        branch_inputs=np.zeros((1, 5), dtype=np.float32),
+        trunk_inputs=np.zeros((48, 2), dtype=np.float32),
+        raw_aeps_fields=np.zeros((1, 48), dtype=np.float32),
+    )
+    validation = replace(
+        validation,
+        content_identity=_partition_content_identity(validation),
+    )
+    return replace(
+        prepared,
+        partitions=MappingProxyType(
+            {
+                **prepared.partitions,
+                "training": training,
+                "validation": validation,
+            }
+        ),
+    )
+
+
+def _assert_same_completed_trajectory(
+    actual: training_module.SeedTrainingResult,
+    expected: training_module.SeedTrainingResult,
+) -> None:
+    assert json.loads(actual.history_path.read_text(encoding="utf-8")) == json.loads(
+        expected.history_path.read_text(encoding="utf-8")
+    )
+    assert actual.checkpoint_identity == expected.checkpoint_identity
+    np.testing.assert_array_equal(
+        np.load(actual.validation_predictions_path),
+        np.load(expected.validation_predictions_path),
+    )
+    assert list(actual.checkpoint_path.parent.glob("*_checkpoint_*.pt")) == [
+        actual.checkpoint_path
     ]
 
 
@@ -352,24 +409,16 @@ def test_cpu_smoke_resume_matches_an_uninterrupted_completed_epoch_trajectory(
         recovery_snapshot=recovery_snapshot,
     )
 
-    uninterrupted_history = json.loads(
-        uninterrupted.history_path.read_text(encoding="utf-8")
-    )
-    resumed_history = json.loads(resumed.history_path.read_text(encoding="utf-8"))
-    assert resumed_history == uninterrupted_history
-    assert resumed.checkpoint_identity == uninterrupted.checkpoint_identity
-    np.testing.assert_array_equal(
-        np.load(resumed.validation_predictions_path),
-        np.load(uninterrupted.validation_predictions_path),
-    )
-    assert list(interrupted_directory.glob("*_checkpoint_*.pt")) == [
-        resumed.checkpoint_path
-    ]
+    _assert_same_completed_trajectory(resumed, uninterrupted)
     assert run_event_names(resumed.run_history_path) == [
         "run_started",
+        "epoch_started",
+        "epoch_started",
         "interruption",
         "resume_attempt",
         "resume_accepted",
+        "epoch_started",
+        "epoch_started",
         "run_completed",
     ]
     snapshot = torch.load(
@@ -448,17 +497,7 @@ def test_recovery_keeps_the_preceding_checkpoint_during_atomic_rollover(
         recovery_snapshot=recovery_snapshot,
     )
 
-    assert json.loads(resumed.history_path.read_text(encoding="utf-8")) == json.loads(
-        uninterrupted.history_path.read_text(encoding="utf-8")
-    )
-    assert resumed.checkpoint_identity == uninterrupted.checkpoint_identity
-    np.testing.assert_array_equal(
-        np.load(resumed.validation_predictions_path),
-        np.load(uninterrupted.validation_predictions_path),
-    )
-    assert list(interrupted_directory.glob("*_checkpoint_*.pt")) == [
-        resumed.checkpoint_path
-    ]
+    _assert_same_completed_trajectory(resumed, uninterrupted)
 
 
 def test_cpu_smoke_resume_discards_a_partial_epoch(
@@ -495,15 +534,80 @@ def test_cpu_smoke_resume_discards_a_partial_epoch(
         recovery_snapshot=recovery_snapshot,
     )
 
-    assert json.loads(resumed.history_path.read_text(encoding="utf-8")) == json.loads(
-        uninterrupted.history_path.read_text(encoding="utf-8")
-    )
+    _assert_same_completed_trajectory(resumed, uninterrupted)
     assert run_event_names(resumed.run_history_path) == [
         "run_started",
+        "epoch_started",
+        "epoch_started",
         "interruption",
         "discarded_partial_epoch",
         "resume_attempt",
         "resume_accepted",
+        "epoch_started",
+        "epoch_started",
+        "run_completed",
+    ]
+
+
+def test_cpu_smoke_resume_infers_an_abrupt_partial_epoch_interruption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
+    uninterrupted = BaselineLifecycle.train(
+        prepared,
+        seed=2,
+        artifact_directory=tmp_path / "uninterrupted-abrupt",
+        smoke_max_epochs=3,
+    )
+
+    interrupted_directory = tmp_path / "interrupted-abrupt"
+    append_run_event = training_module._append_run_event
+
+    def omit_caught_interruption_events(
+        path: Path,
+        event: str,
+        **details: object,
+    ) -> None:
+        if event not in {"interruption", "discarded_partial_epoch"}:
+            append_run_event(path, event, **details)
+
+    monkeypatch.setattr(
+        training_module,
+        "_append_run_event",
+        omit_caught_interruption_events,
+    )
+    monkeypatch.setattr(training_module, "_CONTROLLED_INTERRUPTION_POINT", (2, 1))
+    with pytest.raises(KeyboardInterrupt):
+        BaselineLifecycle.train(
+            prepared,
+            seed=2,
+            artifact_directory=interrupted_directory,
+            smoke_max_epochs=3,
+        )
+
+    monkeypatch.setattr(training_module, "_append_run_event", append_run_event)
+    monkeypatch.setattr(training_module, "_CONTROLLED_INTERRUPTION_POINT", None)
+    recovery_snapshot = next(interrupted_directory.glob("*_recovery.pt"))
+    resumed = BaselineLifecycle.train(
+        prepared,
+        seed=2,
+        artifact_directory=interrupted_directory,
+        smoke_max_epochs=3,
+        recovery_snapshot=recovery_snapshot,
+    )
+
+    _assert_same_completed_trajectory(resumed, uninterrupted)
+    assert run_event_names(resumed.run_history_path) == [
+        "run_started",
+        "epoch_started",
+        "epoch_started",
+        "resume_attempt",
+        "interruption",
+        "discarded_partial_epoch",
+        "resume_accepted",
+        "epoch_started",
+        "epoch_started",
         "run_completed",
     ]
 
@@ -534,10 +638,12 @@ def test_cpu_smoke_can_restart_when_no_epoch_completed_before_interruption(
     )
     assert run_event_names(restarted.run_history_path) == [
         "run_started",
+        "epoch_started",
         "interruption",
         "discarded_partial_epoch",
         "restart",
         "run_started",
+        "epoch_started",
         "run_completed",
     ]
 
@@ -661,6 +767,7 @@ def test_cpu_smoke_rejects_invalid_recovery_and_preserves_restart_history(
     )
     assert run_event_names(restarted.run_history_path) == [
         "run_started",
+        "epoch_started",
         "interruption",
         "resume_attempt",
         "resume_rejected",
@@ -672,6 +779,9 @@ def test_cpu_smoke_rejects_invalid_recovery_and_preserves_restart_history(
         "resume_rejected",
         "restart",
         "run_started",
+        "epoch_started",
+        "epoch_started",
+        "epoch_started",
         "run_completed",
     ]
 
@@ -820,39 +930,7 @@ def test_cpu_smoke_rejects_stale_partition_content_identity(
 def test_cpu_smoke_validation_control_reduces_lr_and_stops_at_300_bad_epochs(
     tmp_path: Path,
 ) -> None:
-    prepared = BaselineLifecycle.prepare(synthetic_repository(tmp_path))
-    training = replace(
-        prepared.partitions["training"],
-        source_rows=(prepared.partitions["training"].source_rows[0],),
-        branch_inputs=np.zeros((1, 5), dtype=np.float32),
-        trunk_inputs=np.zeros((48, 2), dtype=np.float32),
-        raw_aeps_fields=np.ones((1, 48), dtype=np.float32),
-    )
-    training = replace(
-        training,
-        content_identity=_partition_content_identity(training),
-    )
-    validation = replace(
-        prepared.partitions["validation"],
-        source_rows=(prepared.partitions["validation"].source_rows[0],),
-        branch_inputs=np.zeros((1, 5), dtype=np.float32),
-        trunk_inputs=np.zeros((48, 2), dtype=np.float32),
-        raw_aeps_fields=np.zeros((1, 48), dtype=np.float32),
-    )
-    validation = replace(
-        validation,
-        content_identity=_partition_content_identity(validation),
-    )
-    controlled = replace(
-        prepared,
-        partitions=MappingProxyType(
-            {
-                **prepared.partitions,
-                "training": training,
-                "validation": validation,
-            }
-        ),
-    )
+    controlled = _early_stopping_artifact(tmp_path)
 
     result = BaselineLifecycle.train(
         controlled,
@@ -884,6 +962,43 @@ def test_cpu_smoke_validation_control_reduces_lr_and_stops_at_300_bad_epochs(
         rel=0.0,
         abs=1e-15,
     )
+
+
+def test_cpu_smoke_resume_honors_an_already_completed_early_stop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controlled = _early_stopping_artifact(tmp_path)
+    monkeypatch.setattr(training_module, "_EARLY_STOPPING_PATIENCE", 1)
+    uninterrupted = BaselineLifecycle.train(
+        controlled,
+        seed=0,
+        artifact_directory=tmp_path / "uninterrupted-early-stop",
+        smoke_max_epochs=4,
+    )
+
+    interrupted_directory = tmp_path / "interrupted-early-stop"
+    monkeypatch.setattr(training_module, "_CONTROLLED_INTERRUPTION_POINT", (2, None))
+    with pytest.raises(KeyboardInterrupt):
+        BaselineLifecycle.train(
+            controlled,
+            seed=0,
+            artifact_directory=interrupted_directory,
+            smoke_max_epochs=4,
+        )
+
+    monkeypatch.setattr(training_module, "_CONTROLLED_INTERRUPTION_POINT", None)
+    recovery_snapshot = next(interrupted_directory.glob("*_recovery.pt"))
+    resumed = BaselineLifecycle.train(
+        controlled,
+        seed=0,
+        artifact_directory=interrupted_directory,
+        smoke_max_epochs=4,
+        recovery_snapshot=recovery_snapshot,
+    )
+
+    _assert_same_completed_trajectory(resumed, uninterrupted)
+    assert resumed.completed_epochs == 2
 
 
 @pytest.mark.parametrize(
@@ -931,6 +1046,7 @@ def test_cpu_smoke_controlled_numerical_faults_abort_and_record_the_stage(
     }
     assert run_event_names(run_history_path) == [
         "run_started",
+        "epoch_started",
         "numerical_failure",
     ]
 
@@ -986,6 +1102,8 @@ def test_non_finite_failed_trajectory_cannot_resume_unchanged(
 
     assert run_event_names(next(artifact_directory.glob("*_run_history.jsonl"))) == [
         "run_started",
+        "epoch_started",
+        "epoch_started",
         "numerical_failure",
         "resume_attempt",
         "resume_rejected",

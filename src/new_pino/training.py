@@ -431,11 +431,36 @@ def train_seed(
         )
         raise TrainingContractError(message)
 
+    def record_interruption(
+        *,
+        completed_epoch: int,
+        interrupted_epoch: int | None,
+        inferred_on_resume: bool = False,
+    ) -> None:
+        details: dict[str, object] = {
+            "completed_epoch": completed_epoch,
+            "interrupted_epoch": interrupted_epoch,
+            "batch_index": None,
+        }
+        if inferred_on_resume:
+            details["inferred_on_resume"] = True
+        _append_run_event(run_history_path, "interruption", **details)
+        if interrupted_epoch is not None:
+            _append_run_event(
+                run_history_path,
+                "discarded_partial_epoch",
+                completed_epoch=completed_epoch,
+                discarded_epoch=interrupted_epoch,
+            )
+
     prior_run_event = _last_run_event(run_history_path)
+    prior_run_event_name = (
+        None if prior_run_event is None else prior_run_event["event"]
+    )
     resuming = requested_recovery is not None and not restart
     if resuming:
         _append_run_event(run_history_path, "resume_attempt")
-        if prior_run_event == "run_completed":
+        if prior_run_event_name == "run_completed":
             reject_recovery("the training run is already complete")
         if failure_artifact_path.exists():
             reject_recovery(
@@ -443,13 +468,20 @@ def train_seed(
                 "configuration"
             )
     elif restart:
+        if prior_run_event_name == "epoch_started":
+            assert prior_run_event is not None
+            record_interruption(
+                completed_epoch=int(prior_run_event["completed_epoch"]),
+                interrupted_epoch=int(prior_run_event["epoch"]),
+                inferred_on_resume=True,
+            )
         restart_details: dict[str, object] = {}
         if requested_recovery is not None:
             restart_details["abandoned_recovery_snapshot"] = str(
                 requested_recovery
             )
         _append_run_event(run_history_path, "restart", **restart_details)
-        if prior_run_event == "run_completed":
+        if prior_run_event_name == "run_completed":
             raise TrainingContractError("the training run is already complete")
         _append_run_event(run_history_path, "run_started")
     else:
@@ -610,6 +642,16 @@ def train_seed(
             recovery["optimizer_updates_attempted"]
         )
         epoch_history = list(recovery["epoch_history"])
+        if prior_run_event_name == "epoch_started":
+            assert prior_run_event is not None
+            started_epoch = int(prior_run_event["epoch"])
+            record_interruption(
+                completed_epoch=completed_epoch,
+                interrupted_epoch=(
+                    started_epoch if started_epoch > completed_epoch else None
+                ),
+                inferred_on_resume=True,
+            )
         _append_run_event(
             run_history_path,
             "resume_accepted",
@@ -663,9 +705,19 @@ def train_seed(
         )
 
     current_epoch = completed_epoch
+    next_epoch = completed_epoch + 1
+    if epochs_without_meaningful_progress >= _EARLY_STOPPING_PATIENCE:
+        stopping_reason = "canonical_early_stopping"
+        next_epoch = max_epochs + 1
     try:
-        for epoch in range(completed_epoch + 1, max_epochs + 1):
+        for epoch in range(next_epoch, max_epochs + 1):
             current_epoch = epoch
+            _append_run_event(
+                run_history_path,
+                "epoch_started",
+                epoch=epoch,
+                completed_epoch=completed_epoch,
+            )
             active_fault_stage = (
                 controlled_fault_stage
                 if epoch == _CONTROLLED_FAULT_EPOCH
@@ -894,12 +946,12 @@ def train_seed(
                 recovery_payload
             )
             _atomic_torch_save(recovery_snapshot_path, recovery_payload)
+            completed_epoch = epoch
             if (
                 obsolete_checkpoint_path is not None
                 and obsolete_checkpoint_path != checkpoint_path
             ):
                 obsolete_checkpoint_path.unlink(missing_ok=True)
-            completed_epoch = epoch
             if _CONTROLLED_INTERRUPTION_POINT == (epoch, None):
                 raise KeyboardInterrupt
             if should_stop:
@@ -909,20 +961,10 @@ def train_seed(
         interrupted_epoch = (
             current_epoch if current_epoch > completed_epoch else None
         )
-        _append_run_event(
-            run_history_path,
-            "interruption",
+        record_interruption(
             completed_epoch=completed_epoch,
             interrupted_epoch=interrupted_epoch,
-            batch_index=None,
         )
-        if interrupted_epoch is not None:
-            _append_run_event(
-                run_history_path,
-                "discarded_partial_epoch",
-                completed_epoch=completed_epoch,
-                discarded_epoch=interrupted_epoch,
-            )
         raise
     try:
         if best_model_state is None or best_optimizer_state is None:
@@ -1023,12 +1065,9 @@ def train_seed(
         )
 
     except KeyboardInterrupt:
-        _append_run_event(
-            run_history_path,
-            "interruption",
+        record_interruption(
             completed_epoch=completed_epoch,
             interrupted_epoch=None,
-            batch_index=None,
         )
         raise
 
@@ -1100,7 +1139,7 @@ def _append_run_event(path: Path, event: str, **details: object) -> None:
         )
 
 
-def _last_run_event(path: Path) -> str | None:
+def _last_run_event(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
     lines = [
@@ -1108,7 +1147,7 @@ def _last_run_event(path: Path) -> str | None:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line
     ]
-    return None if not lines else str(json.loads(lines[-1])["event"])
+    return None if not lines else dict(json.loads(lines[-1]))
 
 
 def _restore_random_states(
